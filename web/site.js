@@ -253,6 +253,19 @@
     } catch (e) { /* сеть недоступна — повторим позже */ }
   }
 
-  loadSpaces();
+  // ---------- ссылки «Забронировать онлайн» и встраивание на другие сайты ----------
+  const params = new URLSearchParams(location.search);
+  const START = /^(book|couple|staff|prices|(prog|space)_\d{1,4})$/;
+  const start = (params.get("start") || (params.has("book") ? "book" : "")).toLowerCase();
+  const startPayload = START.test(start) ? start.replace("_", ":") : null;
+  if (params.has("embed")) {
+    document.body.classList.add("embed");
+    document.getElementById("chatClose").onclick = () => window.parent.postMessage({ spaPark: "close" }, "*");
+    if (localStorage.getItem(COOKIE_KEY) === null) localStorage.setItem(COOKIE_KEY, "embed");
+    cookie.hidden = true;
+  } else {
+    loadSpaces();
+  }
+  if (params.has("embed") || startPayload) openChat(startPayload || "book");
   setInterval(poll, 3000);
 })();

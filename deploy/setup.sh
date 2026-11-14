@@ -60,9 +60,13 @@ $DOMAIN {
 	header {
 		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options nosniff
-		X-Frame-Options SAMEORIGIN
 		Referrer-Policy strict-origin-when-cross-origin
 	}
+	# Помощника записи (страница /) можно встроить виджетом только на сайт заказчика.
+	@embeddable path /
+	header @embeddable Content-Security-Policy "frame-ancestors 'self' https://spapark86.ru https://*.spapark86.ru"
+	@not_embeddable not path /
+	header @not_embeddable X-Frame-Options SAMEORIGIN
 	reverse_proxy 127.0.0.1:3030 {
 		flush_interval -1
 	}

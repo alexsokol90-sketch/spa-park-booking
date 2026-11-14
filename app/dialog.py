@@ -6,6 +6,7 @@
 медицинских решений ассистент не принимает; сложные случаи передаются администратору.
 """
 import logging
+import re
 from datetime import date, datetime, timedelta
 
 from . import (
@@ -88,6 +89,17 @@ async def handle_voice(guest: dict, audio: bytes | None, filename: str = "voice.
     if not heard:
         return [Out(text=speech.not_heard(lang), buttons=main_menu(Ctx(guest, {})))]
     return [Out(text=speech.heard(heard, lang)), *await handle(guest, text=heard)]
+
+
+START_PARAM = re.compile(r"^(book|couple|staff|prices|(prog|space)_\d{1,4})$")
+
+
+def start_payload(param: str | None) -> str:
+    """Параметр ссылки «Забронировать онлайн» (t.me/bot?start=book, max.ru/bot?start=book) → действие в диалоге."""
+    param = (param or "").strip().lower()
+    if not START_PARAM.match(param):
+        return "menu"
+    return param.replace("_", ":")
 
 
 def main_menu(ctx: Ctx) -> Buttons:
@@ -680,6 +692,9 @@ async def on_text(ctx: Ctx, text: str) -> None:
         return
     if await on_awaited(ctx, text):
         return
+    if parsed.intent == "drinks":
+        await answer_and_escalate(ctx, "drinks", text)
+        return
     masters = await db.query("SELECT id, name FROM masters WHERE active")
     named = nlu.match_master(text, masters)
     if named:
@@ -724,6 +739,9 @@ INTENT_TO_PAYLOAD = {
     "book": "book",
     "greeting": "menu",
     "staff": "staff",
+    "loyalty": "faq:loyalty",
+    "children": "faq:children",
+    "hotel": "faq:hotel",
 }
 
 
@@ -745,6 +763,9 @@ async def rule_reply(ctx: Ctx, parsed: nlu.Parsed, text: str) -> None:
         space = await db.query_one("SELECT id FROM spaces WHERE code = %s", (parsed.space_code,))
         ctx.state["misunderstood"] = 0
         await p_space(ctx, str(space["id"]))
+        return
+    if parsed.intent == "drinks":
+        await answer_and_escalate(ctx, "drinks", text)
         return
     if parsed.intent == "staff":
         await p_staff(ctx, (parsed.day or booking.now().date()).isoformat())
@@ -777,6 +798,15 @@ async def show_by_tag(ctx: Ctx, tag: str) -> None:
     lines = [f"• {_name(ctx, p)} ({_name(ctx, p, 'space_name')}) — {p['duration_min']} {minutes}, {_price_text(ctx, p)}" for p in progs]
     buttons = [[(_name(ctx, p), f"prog:{p['id']}")] for p in progs[:10]]
     ctx.say(ctx.tr("by_tag_title") + "\n" + "\n".join(lines), buttons + [menu_row(ctx)])
+
+
+async def answer_and_escalate(ctx: Ctx, faq_key: str, text: str) -> None:
+    """Частичный ответ: то, что есть в базе знаний, — сразу; остальное уточняет администратор.
+    Так гость не остаётся без ответа, а ассистент ничего не придумывает."""
+    ctx.state["misunderstood"] = 0
+    await escalation.create(ctx.gid, "out_of_kb", text)
+    later = ctx.tr("partial_night") if is_night() else ctx.tr("partial_day")
+    ctx.say(kb.faq(faq_key, ctx.lang) + "\n\n" + later, [[(ctx.tr("btn_book"), "book")], menu_row(ctx)])
 
 
 async def not_understood(ctx: Ctx, text: str) -> None:

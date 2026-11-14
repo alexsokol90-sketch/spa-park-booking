@@ -151,8 +151,9 @@ async def _on_message(msg: dict) -> None:
         return
     if payload:
         await _deliver(peer_id, await dialog.handle(guest, payload=payload))
-    elif text.lower() in ("начать", "start", "/start"):
-        await _deliver(peer_id, await dialog.handle(guest, payload="menu"))
+    elif text.lower() in ("начать", "start", "/start", "забронировать онлайн", "записаться"):
+        start = "book" if text.lower() in ("забронировать онлайн", "записаться") else msg.get("ref")
+        await _deliver(peer_id, await dialog.handle(guest, payload=dialog.start_payload(start)))
     elif text:
         await _deliver(peer_id, await dialog.handle(guest, text=text))
 

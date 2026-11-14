@@ -254,6 +254,11 @@ async def admin_escalations():
     return {"items": items}
 
 
+@app.get("/api/admin/stats", dependencies=ADMIN)
+async def admin_stats(days: int = 7):
+    return await escalation.self_service_stats(max(1, min(days, 90)))
+
+
 @app.post("/api/admin/escalations/{esc_id}/accept", dependencies=ADMIN)
 async def admin_esc_accept(esc_id: int):
     await escalation.accept(esc_id)
@@ -508,6 +513,11 @@ app.mount("/static", StaticFiles(directory=WEB), name="static")
 @app.get("/")
 async def index():
     return FileResponse(WEB / "index.html")
+
+
+@app.get("/links")
+async def links_page():
+    return FileResponse(WEB / "links.html")
 
 
 @app.get("/legal")

@@ -109,6 +109,46 @@ FAQ = {
             "Group visits are arranged by our administrator: tell me how many guests, the date and your wishes, and I'll pass them on."
         ),
     },
+    "loyalty": {
+        "ru": (
+            "Карты лояльности SPA Park:\n"
+            "• Золотая — кешбэк 5% от чека в СПА и ресторане, скидка 10% на проживание в отеле;\n"
+            "• Платиновая — кешбэк 10%, скидка 20% на проживание.\n"
+            "Бонусами можно оплатить до 50% суммы. Карту оформляют по анкете на сайте или на ресепшене; "
+            "виртуальная карта привязывается к номеру телефона."
+        ),
+        "en": (
+            "SPA Park loyalty cards:\n"
+            "• Gold — 5% cashback on SPA and restaurant bills, 10% off hotel stays;\n"
+            "• Platinum — 10% cashback, 20% off hotel stays.\n"
+            "Points can cover up to 50% of a bill. The card is issued via a form on the website or at the reception "
+            "and is linked to your phone number."
+        ),
+    },
+    "children": {
+        "ru": (
+            "Гостям 14–17 лет СПА-услуги оказываются в сокращённом формате, по решению специалиста и в присутствии родителя. "
+            "Детям до 14 лет СПА-услуги не оказываются."
+        ),
+        "en": "Guests aged 14–17 receive shortened treatments at the therapist's discretion with a parent present. SPA services are not provided to children under 14.",
+    },
+    "drinks": {
+        "ru": (
+            "В часть программ для двоих напитки уже входят: «Тайны Востока» — белое вино, «Идеальное свидание» — красное вино, "
+            "«Наследие Индонезии», «Китайская симфония» и «Секрет Гейши» — игристое брют, «Влюбиться в Сибирь» — сет настоек. "
+            "В остальных программах — травяной чай. В комплексе работает ресторан Park Side Inn. "
+            "Специалист может отказать в процедуре гостю в состоянии опьянения."
+        ),
+        "en": (
+            "Some programs for two already include drinks: Secrets of the East — white wine, The perfect date — red wine, "
+            "Heritage of Indonesia, Chinese symphony and Geisha's secret — sparkling brut, Fall in love with Siberia — a set of tinctures. "
+            "Other programs include herbal tea. There is a Park Side Inn restaurant in the complex."
+        ),
+    },
+    "hotel": {
+        "ru": "СПА-парк находится в комплексе Park Side Inn: отель на 120 номеров, ресторан и спортзал. По карте лояльности — скидка на проживание 10–20%.",
+        "en": "SPA-park is part of the Park Side Inn complex: a 120-room hotel, a restaurant and a gym. Loyalty card holders get 10–20% off hotel stays.",
+    },
     "cancel_rules": {  # DEMO в части предоплаты: на сайте условия возврата не опубликованы
         "ru": (
             "Условия: при опоздании программа сокращается на время опоздания. Отменить или перенести запись можно "

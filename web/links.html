@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Кнопка «Забронировать онлайн» — СПА-парк</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="static/site.css">
+<style>
+  .doc-top { background: var(--graphite); color: #fff; padding: 22px 0; }
+  .doc-top .wrap { display: flex; align-items: center; gap: 24px; }
+  .doc-top a.back { margin-left: auto; color: var(--gold); text-decoration: none; font-size: 14px; }
+  .page { padding: 40px 24px 120px; }
+  .page h1 { font-size: clamp(32px, 4vw, 48px); color: var(--ink); text-transform: none; margin-bottom: 8px; }
+  .page h2 { font: 600 28px/1.1 var(--serif); text-transform: uppercase; margin: 44px 0 14px; }
+  .muted { color: var(--muted); }
+  .cards3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; }
+  .lcard { border: 1px solid var(--line); padding: 20px; background: #fff; }
+  .lcard h3 { font: 600 22px/1.1 var(--serif); margin: 0 0 8px; }
+  .lcard img { width: 160px; height: 160px; display: block; margin: 12px 0; image-rendering: pixelated; }
+  code, pre { background: var(--cream); border: 1px solid var(--line); font-size: 13px; }
+  code { padding: 2px 6px; word-break: break-all; }
+  pre { padding: 14px; overflow-x: auto; white-space: pre-wrap; }
+  .copy { margin-top: 8px; }
+  ol li { margin: 6px 0; }
+</style>
+</head>
+<body>
+<header class="doc-top">
+  <div class="wrap">
+    <a class="logo" href="./"><span class="logo-spa">Spa</span><span class="logo-park">Park</span></a>
+    <a class="back" href="./">← На главную</a>
+  </div>
+</header>
+<main class="wrap page">
+  <h1>Кнопка «Забронировать онлайн» везде, где вас ищут</h1>
+  <p class="muted">Гость нажимает кнопку на сайте, во ВКонтакте, в 2ГИС или Яндекс Картах — и сразу попадает к помощнику, который подбирает программу, показывает свободное время и бронирует. Без звонка, круглосуточно. Кнопка в правом нижнем углу этой страницы работает вживую.</p>
+
+  <h2>1. Готовые ссылки и QR-коды</h2>
+  <div class="cards3">
+    <div class="lcard">
+      <h3>MAX</h3>
+      <p class="muted">Открывает бота в MAX сразу на записи.</p>
+      <img src="static/img/qr-max.png" alt="QR-код записи в MAX">
+      <code>https://max.ru/id860333297559_bot?start=book</code>
+    </div>
+    <div class="lcard">
+      <h3>Telegram</h3>
+      <p class="muted">Открывает бота в Telegram сразу на записи.</p>
+      <img src="static/img/qr-telegram.png" alt="QR-код записи в Telegram">
+      <code>https://t.me/Spaparkdemo_bot?start=book</code>
+    </div>
+    <div class="lcard">
+      <h3>Онлайн-запись на сайте</h3>
+      <p class="muted">Без мессенджера — прямо в браузере.</p>
+      <img src="static/img/qr-site.png" alt="QR-код онлайн-записи">
+      <code>https://spa.5-42-98-218.sslip.io/?book=1</code>
+    </div>
+  </div>
+  <p class="muted">Вместо <code>book</code> можно сразу открыть нужный раздел: <code>couple</code> — СПА для двоих, <code>space_5</code> — пространство «Япония», <code>prog_23</code> — конкретная программа. QR-коды можно напечатать на ресепшене, в номерах отеля, на визитках и сертификатах.</p>
+
+  <h2>2. Кнопка на сайте spapark86.ru</h2>
+  <p>Вставьте одну строку перед <code>&lt;/body&gt;</code> (в Битриксе — «Настройки → Настройки продукта → Сайты → шаблон» или в футер шаблона):</p>
+  <pre id="snippet">&lt;script src="https://spa.5-42-98-218.sslip.io/static/widget.js" async&gt;&lt;/script&gt;</pre>
+  <button class="btn btn-gold copy" type="button" data-copy="snippet">Скопировать код</button>
+  <p class="muted">На всех страницах появится золотая кнопка «Забронировать онлайн» в фирменном стиле; помощник открывается поверх сайта, гость никуда не уходит. Свою кнопку (например, «Забронировать онлайн» в шапке сайта) можно подключить атрибутом:</p>
+  <pre>&lt;a href="#" data-spa-book="book"&gt;Забронировать онлайн&lt;/a&gt;
+&lt;a href="#" data-spa-book="couple"&gt;СПА для двоих&lt;/a&gt;</pre>
+  <p class="muted">Встраивание разрешено только на домене spapark86.ru — чужие сайты подключить помощника не смогут.</p>
+
+  <h2>3. ВКонтакте</h2>
+  <ol>
+    <li>Сообщество → «Управление» → «Кнопка действия» → включить → тип «Открыть сайт» (или «Написать в сообщения»).</li>
+    <li>Текст кнопки: «Записаться»; ссылка — <code>https://max.ru/id860333297559_bot?start=book</code> или ссылка на онлайн-запись на сайте.</li>
+    <li>Если подключён бот сообщества VK, кнопка «Написать» открывает того же помощника прямо во ВКонтакте — гость пишет «Забронировать онлайн» и сразу выбирает программу.</li>
+    <li>Ссылку и QR-код удобно закрепить в первом посте и в меню сообщества.</li>
+  </ol>
+
+  <h2>4. 2ГИС и Яндекс Карты</h2>
+  <ol>
+    <li><b>2ГИС:</b> личный кабинет 2ГИС для бизнеса → карточка организации → «Контакты» → добавить сайт или мессенджер со ссылкой на запись. Отдельная кнопка «Записаться» в карточке зависит от тарифа 2ГИС — уточните у вашего менеджера 2ГИС.</li>
+    <li><b>Яндекс Карты:</b> Яндекс Бизнес → карточка организации → «Онлайн-запись» / «Кнопка действия» → вставить ссылку на запись.</li>
+    <li>Во все карточки — одна и та же ссылка: так все брони попадают в единую сетку администратора без накладок.</li>
+  </ol>
+</main>
+<script>
+  document.querySelectorAll("[data-copy]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      navigator.clipboard.writeText(document.getElementById(b.dataset.copy).textContent).then(function () { b.textContent = "Скопировано"; });
+    });
+  });
+</script>
+<script src="static/widget.js" async></script>
+</body>
+</html>

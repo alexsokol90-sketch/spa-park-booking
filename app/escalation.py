@@ -77,3 +77,33 @@ async def open_list() -> list[dict]:
         row["history"] = await guests.history(row["guest_id"], limit=40)
         row["reason_title"] = REASONS.get(row["reason"], row["reason"])
     return rows
+
+
+async def self_service_stats(days: int = 7) -> dict:
+    """Доля обращений, закрытых ассистентом без администратора (цель кейса — не менее 80%)."""
+    row = await db.query_one(
+        """WITH active AS (
+               SELECT DISTINCT guest_id FROM messages
+               WHERE role = 'guest' AND created_at > now() - make_interval(days => %s)),
+           escalated AS (
+               SELECT DISTINCT guest_id FROM escalations WHERE created_at > now() - make_interval(days => %s))
+           SELECT (SELECT count(*) FROM active) AS guests,
+                  (SELECT count(*) FROM active a JOIN escalated e USING (guest_id)) AS escalated,
+                  (SELECT count(*) FROM messages WHERE role = 'guest' AND created_at > now() - make_interval(days => %s)) AS messages""",
+        (days, days, days),
+    )
+    reasons = await db.query(
+        """SELECT reason, count(*) AS n FROM escalations WHERE created_at > now() - make_interval(days => %s)
+           GROUP BY reason ORDER BY n DESC""",
+        (days,),
+    )
+    guests = row["guests"] or 0
+    share = 1 - (row["escalated"] / guests) if guests else None
+    return {
+        "days": days,
+        "guests": guests,
+        "messages": row["messages"],
+        "escalated": row["escalated"],
+        "self_service": share,
+        "reasons": [{"title": REASONS.get(r["reason"], r["reason"]), "n": r["n"]} for r in reasons],
+    }

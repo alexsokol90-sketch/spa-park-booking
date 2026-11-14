@@ -17,13 +17,17 @@ ESCALATION_PATTERNS = [
 ]
 
 INTENT_PATTERNS = [
+    ("drinks", r"пробков|сво\w* (алкогол|напит|вин|шампан|еду)|принест\w* (вино|алкогол|напит|еду|шампан)|алкогол|спиртн|вино|шампанск|игрист|corkage|alcohol|wine|drinks"),
+    ("loyalty", r"карт\w* лояльн|бонус|балл|кешб[эе]к|скидочн\w* карт|клубн\w* карт|loyalty|cashback|bonus"),
+    ("children", r"реб[её]н|дет(и|ям|ей|ский)|подрост|с сыном|с дочк|школьни|\b1[0-7] лет|child|kids|teen"),
+    ("hotel", r"отел|гостиниц|номер(а|ов)? (в|для)|проживан|переночева|ресторан|поесть|покушать|hotel|restaurant"),
     ("staff", r"кто (из мастеров )?работа|какие мастера|график мастер|мастер\w* (сегодня|завтра)|расписание мастер|who.{0,10}working|therapists"),
     ("cancel", r"отмен|cancel"),
     ("reschedule", r"перенес|перенос|другое время|resched"),
     ("my", r"мои запис|моя запис|когда я записан|my booking"),
     ("contraindications", r"противопоказ|contraindic"),
-    ("parking", r"парков|parking"),
-    ("address", r"адрес|где (вы|наход)|как (до вас )?добрат|address|location|where are you"),
+    ("parking", r"парков|припарк|машин|автомобил|parking|car park"),
+    ("address", r"адрес|где (вы|наход)|вы где|как (до вас )?добрат|address|location|where are you"),
     ("hours", r"час\w* работ|режим|во сколько|до скольки|открыт|работаете|hours|open"),
     ("payment", r"оплат|карт\w*|наличн|предоплат|pay"),
     ("certificate", r"сертификат|подар|certificate|gift"),

@@ -116,7 +116,7 @@ async def _on_callback(cb: dict) -> None:
 async def _on_started(upd: dict) -> None:
     user = upd.get("user") or {}
     guest = await guests.by_channel(user["user_id"], user.get("first_name") or user.get("name"), upd.get("chat_id"))
-    await _deliver(user["user_id"], await dialog.handle(guest, payload="menu"))
+    await _deliver(user["user_id"], await dialog.handle(guest, payload=dialog.start_payload(upd.get("payload"))))
 
 
 def _shape(value, depth: int = 0):

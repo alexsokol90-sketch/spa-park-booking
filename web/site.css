@@ -146,3 +146,6 @@ h1 em, .title em { font-style: italic; color: var(--gold); text-transform: none;
 .composer .mic { background: var(--cream); color: var(--ink); border: 1px solid var(--line); font-size: 18px; }
 .composer .mic.rec { background: #c0392b; color: #fff; border-color: #c0392b; animation: recpulse 1s infinite; }
 @keyframes recpulse { 50% { box-shadow: 0 0 0 6px rgba(192,57,43,.25); } }
+/* режим встраивания (виджет на сайте заказчика, ?embed=1): только окно помощника на весь экран */
+body.embed > header, body.embed > main, body.embed > footer, body.embed .chat-fab { display: none !important; }
+body.embed .chat { inset: 0; width: 100%; height: 100%; box-shadow: none; }

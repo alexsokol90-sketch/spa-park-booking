@@ -12,6 +12,14 @@ T = {
         "ru": "Здравствуйте! Я ассистент СПА-парка. Помогу подобрать программу, записаться на свободное время и отвечу на вопросы. Чем могу помочь?",
         "en": "Hello! I'm the SPA-park assistant. I can help you choose a program, book a free time slot and answer your questions. How can I help?",
     },
+    "partial_day": {
+        "ru": "Остальное по вашему вопросу уточнит администратор — я передала ему вопрос, он ответит здесь в ближайшее время.",
+        "en": "Our administrator will clarify the rest — I've passed your question on and they will reply here shortly.",
+    },
+    "partial_night": {
+        "ru": "Остальное по вашему вопросу уточнит администратор — я передала ему вопрос, он ответит здесь после 10:00.",
+        "en": "Our administrator will clarify the rest — I've passed your question on and they will reply here after 10:00.",
+    },
     "max_voice_note": {
         "ru": "Пишите своими словами или выбирайте кнопки. Голосовые сообщения MAX пока не передаёт ботам — их я, к сожалению, не услышу.",
         "en": "Type in your own words or use the buttons. MAX doesn't pass voice messages to bots yet, so I can't hear them.",
@@ -141,7 +149,7 @@ T = {
     "btn_visit_yes": {"ru": "Подтверждаю", "en": "I'll be there"},
     "visit_thanks": {"ru": "Спасибо! Ждём вас завтра.", "en": "Thank you! See you tomorrow."},
     "escalated": {
-        "ru": "Передала ваш вопрос администратору вместе с нашей перепиской. Он ответит вам в ближайшее время.",
+        "ru": "Этого нет в моих данных, а гадать я не хочу. Передала вопрос администратору вместе с нашей перепиской — он ответит здесь в ближайшее время. А пока могу помочь с записью или рассказать о программах.",
         "en": "I've passed your question and our conversation to the administrator. They will reply shortly.",
     },
     "escalated_night": {

@@ -280,7 +280,23 @@
   }
 
   // ---------- запросы (эскалации) ----------
+  async function loadStats() {
+    const st = await api("api/admin/stats?days=7");
+    const wrap = document.getElementById("stats");
+    wrap.innerHTML = "";
+    const pct = st.self_service === null ? "—" : Math.round(st.self_service * 100) + "%";
+    const cls = st.self_service === null ? "" : st.self_service >= 0.8 ? "good" : "bad";
+    wrap.append(
+      h("div", { class: "stat " + cls }, [h("b", { text: pct }), h("span", { text: "гостей обслужены без администратора (цель — 80%)" })]),
+      h("div", { class: "stat" }, [h("b", { text: st.guests }), h("span", { text: "гостей писали за 7 дней" })]),
+      h("div", { class: "stat" }, [h("b", { text: st.messages }), h("span", { text: "сообщений от гостей" })]),
+      h("div", { class: "stat" }, [h("b", { text: st.escalated }), h("span", { text: "гостей передано администратору" })])
+    );
+    if (st.reasons.length) wrap.append(h("div", { class: "stat" }, [h("span", { text: "Причины передачи:" }), ...st.reasons.map((r) => h("div", { text: r.title + " — " + r.n }))]));
+  }
+
   async function loadEsc() {
+    loadStats();
     const data = await api("api/admin/escalations");
     const list = document.getElementById("escList");
     const fresh = data.items.filter((e) => e.status === "new").length;

@@ -103,7 +103,8 @@ async def _on_message(msg: dict) -> None:
         if guest.get("lang") == "ru" and (sender.get("language_code") or "").startswith("en"):
             await guests.set_lang(guest["id"], "en")
             guest["lang"] = "en"
-        await _deliver(chat_id, await dialog.handle(guest, payload="menu"))
+        param = text.split(maxsplit=1)[1] if " " in text else ""
+        await _deliver(chat_id, await dialog.handle(guest, payload=dialog.start_payload(param)))
     elif text:
         await _deliver(chat_id, await dialog.handle(guest, text=text))
 

@@ -134,3 +134,9 @@ button:disabled { opacity: .5; cursor: default; }
 .tpl-item input { flex: 1; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; font: inherit; font-size: 13px; }
 .tpl-item button { border: 1px solid var(--line); background: #fff; border-radius: 6px; cursor: pointer; width: 28px; }
 .tpl.inactive { opacity: .55; }
+.stats { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
+.stat { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; min-width: 170px; }
+.stat b { display: block; font-size: 26px; line-height: 1.1; }
+.stat.good b { color: var(--accent); }
+.stat.bad b { color: var(--danger); }
+.stat span { color: var(--muted); font-size: 12px; }

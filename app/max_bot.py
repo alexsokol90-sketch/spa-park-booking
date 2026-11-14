@@ -9,7 +9,7 @@ import re
 
 import httpx
 
-from . import config, dialog, guests, notify
+from . import config, dialog, guests, notify, speech
 
 log = logging.getLogger("max_bot")
 _client: httpx.AsyncClient | None = None
@@ -66,6 +66,16 @@ def _contact_phone(body: dict) -> str | None:
     return None
 
 
+def _audio_url(body: dict) -> str | None:
+    """Ссылка на голосовое сообщение (вложение типа audio)."""
+    for att in body.get("attachments") or []:
+        if att.get("type") in ("audio", "voice"):
+            url = (att.get("payload") or {}).get("url")
+            if url:
+                return url
+    return None
+
+
 async def _deliver(user_id: int, outs: list[notify.Out]) -> None:
     for out in outs:
         await send_out(user_id, out)
@@ -83,10 +93,16 @@ async def _on_message(msg: dict) -> None:
         return
     guest = await guests.by_channel(user_id, sender.get("first_name") or sender.get("name"), chat_id)
     phone = _contact_phone(body)
+    audio_url = _audio_url(body)
     if phone:
         await _deliver(user_id, await dialog.handle(guest, phone=phone))
+    elif audio_url:
+        audio = await speech.download(audio_url, {"Authorization": config.MAX_BOT_TOKEN})
+        await _deliver(user_id, await dialog.handle_voice(guest, audio, "voice.ogg"))
     elif text:
         await _deliver(user_id, await dialog.handle(guest, text=text))
+    elif body.get("attachments"):
+        log.info("unsupported attachments: %s", [(a.get("type"), sorted((a.get("payload") or {}).keys())) for a in body["attachments"]])
 
 
 async def _on_callback(cb: dict) -> None:

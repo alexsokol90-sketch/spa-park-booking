@@ -8,7 +8,19 @@
 import logging
 from datetime import date, datetime, timedelta
 
-from . import ai, booking, config, db, escalation, guests, kb, nlu, notify, staff
+from . import (
+    ai,
+    booking,
+    config,
+    db,
+    escalation,
+    guests,
+    kb,
+    nlu,
+    notify,
+    speech,
+    staff,
+)
 from .notify import Out
 from .texts import fmt_day, fmt_time, fmt_when, t
 
@@ -67,6 +79,15 @@ async def handle(guest: dict, text: str | None = None, payload: str | None = Non
     for item in ctx.out:
         await guests.log(ctx.gid, "bot", item.text)
     return ctx.out
+
+
+async def handle_voice(guest: dict, audio: bytes | None, filename: str = "voice.ogg", text: str | None = None) -> list[Out]:
+    """Голосовое сообщение: распознаём (или берём готовую расшифровку мессенджера) и обрабатываем как текст."""
+    lang = guest.get("lang") or "ru"
+    heard = text or (await speech.transcribe(audio, filename) if audio else None)
+    if not heard:
+        return [Out(text=speech.not_heard(lang), buttons=main_menu(Ctx(guest, {})))]
+    return [Out(text=speech.heard(heard, lang)), *await handle(guest, text=heard)]
 
 
 def main_menu(ctx: Ctx) -> Buttons:

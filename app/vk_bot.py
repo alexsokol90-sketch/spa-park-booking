@@ -12,7 +12,7 @@ import re
 
 import httpx
 
-from . import config, dialog, guests, notify, settings
+from . import config, dialog, guests, notify, settings, speech
 
 log = logging.getLogger("vk_bot")
 API = "https://api.vk.com/method/{method}"
@@ -129,6 +129,14 @@ def _button_payload(raw: str | dict | None) -> str | None:
     return data.get("p")
 
 
+def _voice(msg: dict) -> dict | None:
+    """Голосовое сообщение VK; поле transcript — готовая расшифровка от самого VK, если она есть."""
+    for att in msg.get("attachments") or []:
+        if att.get("type") == "audio_message":
+            return att.get("audio_message") or {}
+    return None
+
+
 async def _on_message(msg: dict) -> None:
     user_id, peer_id = msg["from_id"], msg["peer_id"]
     text = (msg.get("text") or "").strip()
@@ -136,6 +144,11 @@ async def _on_message(msg: dict) -> None:
         return
     guest = await _guest(user_id)
     payload = _button_payload(msg.get("payload"))
+    voice = _voice(msg)
+    if voice:
+        audio = None if voice.get("transcript") else await speech.download(voice.get("link_ogg") or voice.get("link_mp3") or "")
+        await _deliver(peer_id, await dialog.handle_voice(guest, audio, "voice.ogg", text=voice.get("transcript")))
+        return
     if payload:
         await _deliver(peer_id, await dialog.handle(guest, payload=payload))
     elif text.lower() in ("начать", "start", "/start"):

@@ -9,7 +9,7 @@ import re
 
 import httpx
 
-from . import config, dialog, guests, notify, settings
+from . import config, dialog, guests, notify, settings, speech
 
 log = logging.getLogger("tg_bot")
 API = "{base}/bot{token}/{method}"
@@ -95,6 +95,10 @@ async def _on_message(msg: dict) -> None:
         await call("sendMessage", chat_id=chat_id, text="Спасибо, номер получен.", reply_markup={"remove_keyboard": True})
         await _deliver(chat_id, await dialog.handle(guest, phone=contact.get("phone_number", "")))
         return
+    voice = msg.get("voice") or msg.get("audio") or msg.get("video_note")
+    if voice:
+        await _deliver(chat_id, await dialog.handle_voice(guest, await _download_file(voice["file_id"]), "voice.ogg"))
+        return
     if text.startswith("/start"):
         if guest.get("lang") == "ru" and (sender.get("language_code") or "").startswith("en"):
             await guests.set_lang(guest["id"], "en")
@@ -102,6 +106,13 @@ async def _on_message(msg: dict) -> None:
         await _deliver(chat_id, await dialog.handle(guest, payload="menu"))
     elif text:
         await _deliver(chat_id, await dialog.handle(guest, text=text))
+
+
+async def _download_file(file_id: str) -> bytes | None:
+    info = await call("getFile", file_id=file_id)
+    if not info or not info.get("file_path"):
+        return None
+    return await speech.download(f"{config.TG_API_BASE}/file/bot{config.TG_BOT_TOKEN}/{info['file_path']}")
 
 
 async def _on_callback(cb: dict) -> None:

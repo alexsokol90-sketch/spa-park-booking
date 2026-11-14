@@ -196,6 +196,54 @@
     send({ text: text });
   });
 
+  // ---------- голосовые ----------
+  const mic = document.getElementById("mic");
+  let recorder = null;
+  let chunks = [];
+
+  async function sendVoice(blob) {
+    const typing = document.createElement("div");
+    typing.className = "typing";
+    typing.textContent = "распознаю голосовое…";
+    log.append(typing);
+    scroll();
+    try {
+      const resp = await fetch("api/chat/voice?uid=" + uid(), { method: "POST", headers: { "Content-Type": blob.type || "audio/webm" }, body: blob });
+      const data = await resp.json();
+      typing.remove();
+      (data.messages || []).forEach(addBot);
+    } catch (e) {
+      typing.textContent = "Не удалось отправить голосовое. Напишите, пожалуйста, текстом.";
+    }
+  }
+
+  mic.addEventListener("click", async () => {
+    if (recorder && recorder.state === "recording") {
+      recorder.stop();
+      return;
+    }
+    if (!navigator.mediaDevices || !window.MediaRecorder) {
+      window.alert("Браузер не поддерживает запись голоса. Напишите, пожалуйста, текстом.");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      recorder = new MediaRecorder(stream);
+      chunks = [];
+      recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+      recorder.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop());
+        mic.classList.remove("rec");
+        addMine("🎙 голосовое сообщение");
+        sendVoice(new Blob(chunks, { type: recorder.mimeType || "audio/webm" }));
+      };
+      recorder.start();
+      mic.classList.add("rec");
+    } catch (e) {
+      window.alert("Нет доступа к микрофону. Разрешите его в настройках браузера или напишите текстом.");
+    }
+  });
+
   async function poll() {
     if (!started) return;
     try {

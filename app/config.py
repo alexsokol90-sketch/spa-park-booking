@@ -19,6 +19,7 @@ GIGACHAT_MODEL = os.getenv("GIGACHAT_MODEL", "GigaChat")
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "").strip()
 LLM_API_KEY = os.getenv("LLM_API_KEY", "").strip()
 LLM_MODEL = os.getenv("LLM_MODEL", "yandexgpt")
+STT_MODEL = os.getenv("STT_MODEL", "timeweb/whisper-large-v3")
 
 
 def _default_provider() -> str:

@@ -123,7 +123,8 @@
 
   <div class="chat-log" id="log" aria-live="polite" hidden></div>
   <form class="composer" id="form" hidden>
-    <input id="input" autocomplete="off" placeholder="Напишите, что хотите…" maxlength="2000">
+    <button type="button" class="mic" id="mic" aria-label="Записать голосовое" title="Нажмите и говорите, нажмите ещё раз — отправить">🎙</button>
+    <input id="input" autocomplete="off" placeholder="Напишите или скажите голосом…" maxlength="2000">
     <button type="submit" aria-label="Отправить">➤</button>
   </form>
 </aside>

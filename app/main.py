@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from datetime import date, datetime
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
@@ -27,6 +27,7 @@ from . import (
     notify,
     privacy,
     scheduler,
+    speech,
     staff,
     tg_bot,
     vk_bot,
@@ -112,6 +113,19 @@ async def public_spaces():
            GROUP BY s.id ORDER BY s.sort"""
     )
     return {"spaces": rows}
+
+
+@app.post("/api/chat/voice")
+async def chat_voice(uid: int, request: Request):
+    """Голосовое из чата на сайте: тело запроса — аудио (webm/ogg), до 10 МБ."""
+    if uid >= 0:
+        raise HTTPException(400, "Неверный идентификатор")
+    audio = await request.body()
+    if len(audio) > speech.MAX_BYTES:
+        raise HTTPException(413, "Слишком длинное сообщение")
+    guest = await guests.by_channel(uid)
+    outs = await dialog.handle_voice(guest, audio, "voice.webm")
+    return {"messages": [o.as_dict() for o in outs]}
 
 
 @app.get("/api/chat/inbox")

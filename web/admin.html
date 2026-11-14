@@ -108,13 +108,26 @@
   </section>
 
   <section id="tab-checklists" class="tab">
-    <h2>Чек-листы смены</h2>
+    <h2>Чек-листы</h2>
     <div class="toolbar">
+      <div class="chips" id="clRoles">
+        <button type="button" class="chip active" data-role="">Все</button>
+        <button type="button" class="chip" data-role="admin">Администратор</button>
+        <button type="button" class="chip" data-role="master">Мастера</button>
+        <button type="button" class="chip" data-role="cleaning">Клининг</button>
+      </div>
       <input type="date" id="clDay">
       <label class="muted">Отмечает: <input id="clWho" placeholder="Имя сотрудника" class="who"></label>
       <span class="muted" id="clSummary"></span>
+      <button type="button" id="clEditToggle" class="push-right">Редактировать шаблоны</button>
     </div>
     <div class="cards" id="clList"></div>
+    <div id="clEditor" hidden>
+      <p class="muted">Изменения применяются к новым и ещё не начатым чек-листам; уже отмеченные пункты сохраняются в истории.
+        Подстановки: <code>{preorders}</code> — предзаказ гостя, <code>{master}</code> — мастер, <code>{space}</code> — пространство.</p>
+      <div class="row-actions"><button type="button" class="primary" id="tplNew">+ Новый чек-лист</button></div>
+      <div class="cards" id="tplList"></div>
+    </div>
   </section>
 
   <section id="tab-stock" class="tab">

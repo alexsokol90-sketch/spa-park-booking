@@ -114,42 +114,73 @@ async def master_days(master_id: int, days: int = 7) -> list[dict]:
 
 # ---------- чек-листы ----------
 
+DAILY_KINDS = ("opening", "daily", "custom", "closing")
+BOOKING_KINDS = ("space", "cleanup")
+ROLES = ("admin", "master", "cleaning")
+KINDS = ("opening", "daily", "space", "cleanup", "closing")
+
+
+def _fill(items: list[str], bk: dict) -> list[str]:
+    pre = ", ".join(p["name"] for p in bk["preorders"]) or "без предзаказа"
+    return [i.replace("{preorders}", pre).replace("{master}", bk["master_name"]).replace("{space}", bk["space_name"]) for i in items]
+
+
+def _hm(moment: datetime) -> str:
+    return f"{moment.astimezone(config.TZ):%H:%M}"
+
+
+def _booking_title(tpl: dict, bk: dict) -> str:
+    if tpl["kind"] == "cleanup":
+        return f"{tpl['title']}: {bk['space_name']} {_hm(bk['ends_at'])}–{_hm(bk['busy_until'])} после «{bk['program_name']}»"
+    return f"{tpl['title']}: {bk['space_name']} к {_hm(bk['starts_at'])} — {bk['program_name']}"
+
+
+async def _insert_run(tpl: dict, day: date, title: str, items: list[str], booking_id: int | None = None) -> None:
+    await db.query(
+        """INSERT INTO checklist_runs (template_id, day, booking_id, title, items) VALUES (%s, %s, %s, %s, %s)
+           ON CONFLICT DO NOTHING RETURNING id""",
+        (tpl["id"], day, booking_id, title, json.dumps(items, ensure_ascii=False)),
+    )
+
+
 async def _ensure_runs(day: date) -> None:
-    """Создаёт выполнения на день: открытие/закрытие смены и подготовку к каждой брони."""
-    templates = {t["kind"]: t for t in await db.query("SELECT * FROM checklist_templates WHERE active")}
-    for kind in ("opening", "closing"):
-        tpl = templates.get(kind)
-        if tpl:
-            await db.query(
-                """INSERT INTO checklist_runs (template_id, day, title, items) VALUES (%s, %s, %s, %s)
-                   ON CONFLICT DO NOTHING RETURNING id""",
-                (tpl["id"], day, tpl["title"], json.dumps(tpl["items"], ensure_ascii=False)),
-            )
-    tpl = templates.get("space")
-    if not tpl:
+    """Выполнения на день: ежедневные чек-листы и по каждой брони — подготовка до и уборка после."""
+    templates = await db.query("SELECT * FROM checklist_templates WHERE active ORDER BY sort, id")
+    for tpl in templates:
+        if tpl["kind"] in DAILY_KINDS:
+            await _insert_run(tpl, day, tpl["title"], tpl["items"])
+    per_booking = [t for t in templates if t["kind"] in BOOKING_KINDS]
+    if not per_booking:
         return
     for bk in await booking.day_bookings(day):
-        if bk["status"] != "confirmed":
+        if bk["status"] not in ("confirmed", "completed"):
             continue
-        pre = ", ".join(p["name"] for p in bk["preorders"]) or "без предзаказа"
-        title = f"{tpl['title']}: {bk['space_name']} к {bk['starts_at'].astimezone(config.TZ):%H:%M} — {bk['program_name']}"
-        items = [i.replace("{preorders}", pre).replace("{master}", bk["master_name"]) for i in tpl["items"]]
-        await db.query(
-            """INSERT INTO checklist_runs (template_id, day, booking_id, title, items) VALUES (%s, %s, %s, %s, %s)
-               ON CONFLICT DO NOTHING RETURNING id""",
-            (tpl["id"], day, bk["id"], title, json.dumps(items, ensure_ascii=False)),
-        )
+        for tpl in per_booking:
+            await _insert_run(tpl, day, _booking_title(tpl, bk), _fill(tpl["items"], bk), bk["id"])
 
 
-async def checklists(day: date) -> list[dict]:
+def _run_order(run: dict) -> tuple:
+    if run["kind"] == "opening":
+        return (0, "")
+    if run["kind"] == "closing":
+        return (3, "")
+    moment = run["ends_at"] if run["kind"] == "cleanup" else run["starts_at"]
+    return (1, moment.isoformat()) if moment else (2, run["title"])
+
+
+async def checklists(day: date, role: str | None = None) -> list[dict]:
     await _ensure_runs(day)
-    return await db.query(
-        """SELECT r.*, t.kind, b.starts_at FROM checklist_runs r JOIN checklist_templates t ON t.id = r.template_id
+    rows = await db.query(
+        """SELECT r.*, t.kind, t.role, b.starts_at, b.ends_at, b.busy_until FROM checklist_runs r
+           JOIN checklist_templates t ON t.id = r.template_id
            LEFT JOIN bookings b ON b.id = r.booking_id
            WHERE r.day = %s AND (r.booking_id IS NULL OR b.status IN ('confirmed', 'completed'))
-           ORDER BY CASE t.kind WHEN 'opening' THEN 0 WHEN 'space' THEN 1 ELSE 2 END, b.starts_at NULLS FIRST""",
+             AND (t.active OR r.done <> '{}'::jsonb)""",
         (day,),
     )
+    if role:
+        rows = [r for r in rows if r["role"] == role]
+    return sorted(rows, key=_run_order)
 
 
 async def toggle(run_id: int, index: int, who: str) -> dict:
@@ -172,4 +203,56 @@ async def toggle(run_id: int, index: int, who: str) -> dict:
             (json.dumps(done, ensure_ascii=False), complete, run_id),
         )
     events.publish("checklists")
+    return row
+
+
+# ---------- редактирование шаблонов ----------
+
+def _clean_items(items: list[str]) -> list[str]:
+    cleaned = [i.strip()[:200] for i in items if i and i.strip()]
+    if not cleaned:
+        raise ValueError("В чек-листе должен быть хотя бы один пункт")
+    return cleaned[:40]
+
+
+def _check(role: str, kind: str) -> None:
+    if role not in ROLES or kind not in KINDS:
+        raise ValueError("Неизвестная роль или тип чек-листа")
+
+
+async def templates() -> list[dict]:
+    return await db.query("SELECT * FROM checklist_templates ORDER BY active DESC, sort, id")
+
+
+async def _refresh_pending(template_id: int) -> None:
+    """Сегодняшние и будущие выполнения без отметок пересоздаются по новому шаблону; начатые — не трогаем."""
+    await db.query(
+        "DELETE FROM checklist_runs WHERE template_id = %s AND day >= %s AND done = '{}'::jsonb RETURNING id",
+        (template_id, booking.now().date()),
+    )
+    events.publish("checklists")
+
+
+async def create_template(title: str, role: str, kind: str, items: list[str]) -> dict:
+    _check(role, kind)
+    row = await db.query_one(
+        """INSERT INTO checklist_templates (code, title, kind, role, items, sort)
+           VALUES ('custom-' || substr(md5(random()::text), 1, 8), %s, %s, %s, %s,
+                   (SELECT COALESCE(max(sort), 0) + 1 FROM checklist_templates)) RETURNING *""",
+        (title.strip()[:120], kind, role, json.dumps(_clean_items(items), ensure_ascii=False)),
+    )
+    events.publish("checklists")
+    return row
+
+
+async def update_template(template_id: int, title: str, role: str, kind: str, items: list[str], active: bool) -> dict:
+    _check(role, kind)
+    row = await db.query_one(
+        """UPDATE checklist_templates SET title = %s, role = %s, kind = %s, items = %s, active = %s
+           WHERE id = %s RETURNING *""",
+        (title.strip()[:120], role, kind, json.dumps(_clean_items(items), ensure_ascii=False), active, template_id),
+    )
+    if not row:
+        raise ValueError("Шаблон не найден")
+    await _refresh_pending(template_id)
     return row

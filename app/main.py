@@ -431,8 +431,37 @@ async def admin_shift_pattern(inp: PatternIn):
 # ---------- чек-листы ----------
 
 @app.get("/api/admin/checklists", dependencies=ADMIN)
-async def admin_checklists(day: date | None = None):
-    return {"items": await staff.checklists(day or booking.now().date())}
+async def admin_checklists(day: date | None = None, role: str | None = None):
+    return {"items": await staff.checklists(day or booking.now().date(), role or None)}
+
+
+class TemplateIn(BaseModel):
+    title: str = Field(min_length=2, max_length=120)
+    role: str = Field(pattern="^(admin|master|cleaning)$")
+    kind: str = Field(pattern="^(opening|daily|space|cleanup|closing)$")
+    items: list[str] = Field(min_length=1, max_length=40)
+    active: bool = True
+
+
+@app.get("/api/admin/checklist-templates", dependencies=ADMIN)
+async def admin_templates():
+    return {"items": await staff.templates()}
+
+
+@app.post("/api/admin/checklist-templates", dependencies=ADMIN)
+async def admin_template_create(inp: TemplateIn):
+    try:
+        return await staff.create_template(inp.title, inp.role, inp.kind, inp.items)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@app.put("/api/admin/checklist-templates/{template_id}", dependencies=ADMIN)
+async def admin_template_update(template_id: int, inp: TemplateIn):
+    try:
+        return await staff.update_template(template_id, inp.title, inp.role, inp.kind, inp.items, inp.active)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 class ToggleIn(BaseModel):

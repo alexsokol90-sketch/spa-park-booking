@@ -119,3 +119,18 @@ button:disabled { opacity: .5; cursor: default; }
 .cl-item.done span { color: var(--muted); text-decoration: line-through; }
 .cl-item small { display: block; color: var(--muted); font-size: 11px; text-decoration: none; }
 .card.complete { border-color: var(--accent); }
+.chips { display: flex; gap: 4px; }
+.chip { border: 1px solid var(--line); background: #fff; padding: 6px 12px; border-radius: 16px; cursor: pointer; font-size: 13px; }
+.chip.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.push-right { margin-left: auto; }
+.role-tag { font-size: 11px; padding: 1px 8px; border-radius: 10px; background: #eef3ee; color: var(--accent); margin-left: 6px; font-weight: 500; }
+.role-tag.cleaning { background: #e8f0f8; color: #3c6e9a; }
+.role-tag.master { background: #f6efe3; color: #8a6a2f; }
+.cl-time { font-size: 12px; color: var(--muted); }
+.tpl input.title { width: 100%; font: 600 15px inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; margin-bottom: 8px; }
+.tpl .meta { display: flex; gap: 8px; margin-bottom: 8px; }
+.tpl select { padding: 5px 8px; border: 1px solid var(--line); border-radius: 8px; font: inherit; font-size: 13px; }
+.tpl-item { display: flex; gap: 4px; margin: 4px 0; }
+.tpl-item input { flex: 1; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; font: inherit; font-size: 13px; }
+.tpl-item button { border: 1px solid var(--line); background: #fff; border-radius: 6px; cursor: pointer; width: 28px; }
+.tpl.inactive { opacity: .55; }

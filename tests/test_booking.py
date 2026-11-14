@@ -118,3 +118,28 @@ def test_slots_respect_master_schedule():
     assert slots, "должны быть окна в смену"
     assert all(master == 1 for _, _, master in slots)
     assert all(h * 60 + m + 30 <= 720 for h, m, _ in slots)
+
+
+def test_checklist_templates_editable_and_cleaning_runs():
+    """Новый шаблон сразу появляется в чек-листах дня; правка пунктов обновляет неначатые выполнения;
+    после каждой подтверждённой брони есть чек-лист клининга с окном уборки."""
+    from app import staff
+
+    async def scenario():
+        today = booking.now().date()
+        tpl = await staff.create_template("Тест: проверка сауны", "cleaning", "daily", ["пункт 1"])
+        try:
+            runs = await staff.checklists(today, "cleaning")
+            mine = [r for r in runs if r["template_id"] == tpl["id"]]
+            await staff.update_template(tpl["id"], "Тест: проверка сауны", "cleaning", "daily", ["пункт 1", "пункт 2"], True)
+            updated = [r for r in await staff.checklists(today, "cleaning") if r["template_id"] == tpl["id"]]
+            cleanups = [r for r in runs if r["kind"] == "cleanup"]
+            return len(mine), updated[0]["items"], all("после «" in r["title"] for r in cleanups), bool(cleanups)
+        finally:
+            await db.query("DELETE FROM checklist_runs WHERE template_id = %s RETURNING id", (tpl["id"],))
+            await db.query("DELETE FROM checklist_templates WHERE id = %s RETURNING id", (tpl["id"],))
+
+    count, items, titled, has_cleanup = asyncio.run(_with_pool(scenario))
+    assert count == 1
+    assert items == ["пункт 1", "пункт 2"]
+    assert titled and has_cleanup

@@ -247,3 +247,13 @@ CREATE TABLE IF NOT EXISTS checklist_runs (
     created_at   timestamptz NOT NULL DEFAULT now()
 );
 CREATE UNIQUE INDEX IF NOT EXISTS checklist_runs_once ON checklist_runs (template_id, day, COALESCE(booking_id, 0));
+
+-- Чек-листы: роль исполнителя (администратор, мастер, клининг) и тип запуска (миграция для существующих БД).
+ALTER TABLE checklist_templates ADD COLUMN IF NOT EXISTS role text NOT NULL DEFAULT 'admin';
+ALTER TABLE checklist_templates ADD COLUMN IF NOT EXISTS sort int NOT NULL DEFAULT 0;
+ALTER TABLE checklist_templates DROP CONSTRAINT IF EXISTS checklist_templates_kind_check;
+ALTER TABLE checklist_templates ADD CONSTRAINT checklist_templates_kind_check
+    CHECK (kind IN ('opening', 'closing', 'daily', 'space', 'cleanup', 'custom'));
+ALTER TABLE checklist_templates DROP CONSTRAINT IF EXISTS checklist_templates_role_check;
+ALTER TABLE checklist_templates ADD CONSTRAINT checklist_templates_role_check
+    CHECK (role IN ('admin', 'master', 'cleaning'));

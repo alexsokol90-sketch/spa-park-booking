@@ -52,3 +52,10 @@ def test_phone_normalization():
     assert guests.normalize_phone("8 (912) 555-12-34") == "+79125551234"
     assert guests.normalize_phone("+7 900 000 00 01") == "+79000000001"
     assert guests.normalize_phone("нет телефона") is None
+
+
+def test_phone_masked_for_model():
+    from app.ai import mask_pd
+
+    assert mask_pd("мой номер 8 (912) 555-12-34, жду") == "мой номер [телефон], жду"
+    assert mask_pd("завтра в 18:00") == "завтра в 18:00"

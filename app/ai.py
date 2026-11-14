@@ -5,6 +5,7 @@
 Без ключа API работает разбор текста по правилам (nlu.py).
 """
 import logging
+import re
 from datetime import date, datetime
 
 import anthropic
@@ -144,6 +145,14 @@ async def _run_tool(ctx, name: str, args: dict) -> str:
     return "Неизвестный инструмент"
 
 
+PHONE_MASK = re.compile(r"\+?\d[\d\s\-()]{8,}\d")
+
+
+def mask_pd(text: str) -> str:
+    """В модель не уходят телефоны: персональные данные остаются в нашей БД."""
+    return PHONE_MASK.sub("[телефон]", text)
+
+
 async def _history(ctx, text: str) -> list[dict]:
     rows = await db.query(
         "SELECT role, text FROM messages WHERE guest_id = %s ORDER BY id DESC LIMIT 12", (ctx.gid,)
@@ -152,15 +161,15 @@ async def _history(ctx, text: str) -> list[dict]:
     for row in reversed(rows[1:]):
         role = "user" if row["role"] == "guest" else "assistant"
         if msgs and msgs[-1]["role"] == role:
-            msgs[-1]["content"] += "\n" + row["text"]
+            msgs[-1]["content"] += "\n" + mask_pd(row["text"])
         else:
-            msgs.append({"role": role, "content": row["text"]})
+            msgs.append({"role": role, "content": mask_pd(row["text"])})
     while msgs and msgs[0]["role"] != "user":
         msgs.pop(0)
     if msgs and msgs[-1]["role"] == "user":
-        msgs[-1]["content"] += "\n" + text
+        msgs[-1]["content"] += "\n" + mask_pd(text)
     else:
-        msgs.append({"role": "user", "content": text})
+        msgs.append({"role": "user", "content": mask_pd(text)})
     return msgs
 
 

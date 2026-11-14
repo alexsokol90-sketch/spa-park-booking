@@ -11,7 +11,7 @@ from datetime import date, datetime
 import anthropic
 import httpx
 
-from . import config, db, gigachat, kb
+from . import config, db, gigachat, kb, openai_compat
 from .notify import Out
 from .texts import fmt_when
 
@@ -74,6 +74,8 @@ TOOLS = [
 
 
 def provider() -> str | None:
+    if config.LLM_PROVIDER == "openai_compat" and openai_compat.enabled():
+        return "openai_compat"
     if config.LLM_PROVIDER == "gigachat" and gigachat.enabled():
         return "gigachat"
     if _client is not None:
@@ -184,19 +186,22 @@ async def _history(ctx, text: str) -> list[dict]:
 
 async def agent_reply(ctx, text: str) -> bool:
     """Ответ модели с вызовом инструментов. False — модель недоступна, нужен запасной путь."""
+    if provider() == "openai_compat":
+        return await _external_reply(ctx, text, openai_compat.run_agent)
     if provider() == "gigachat":
-        return await _gigachat_reply(ctx, text)
+        return await _external_reply(ctx, text, gigachat.run_agent)
     return await _claude_reply(ctx, text)
 
 
-async def _gigachat_reply(ctx, text: str) -> bool:
+async def _external_reply(ctx, text: str, run_agent) -> bool:
+    """Российские провайдеры (Timeweb/YandexGPT, GigaChat): общий цикл с инструментами движка."""
     ui_before = len(ctx.out)
 
     async def run_tool(name: str, args: dict) -> str:
         return await _run_tool(ctx, name, args)
 
     try:
-        final_text = await gigachat.run_agent(await system_prompt(ctx), await _history(ctx, text), TOOLS, run_tool, MAX_STEPS)
+        final_text = await run_agent(await system_prompt(ctx), await _history(ctx, text), TOOLS, run_tool, MAX_STEPS)
     except (httpx.HTTPError, KeyError, ValueError) as exc:
         log.warning("GigaChat error: %s", exc)
         return len(ctx.out) > ui_before
@@ -235,6 +240,8 @@ async def _claude_reply(ctx, text: str) -> bool:
 
 async def generate_text(prompt: str, max_tokens: int = 600) -> str | None:
     """Свободная генерация (маркетинговые тексты). None — модель недоступна."""
+    if provider() == "openai_compat":
+        return await openai_compat.generate(prompt, max_tokens)
     if provider() == "gigachat":
         return await gigachat.generate(prompt, max_tokens)
     if _client is None:

@@ -84,3 +84,14 @@ def test_vk_keyboard_packs_rows_instead_of_dropping():
     fitted = fit_rows(rows)
     assert sum(len(r) for r in fitted) == 8
     assert len(fitted) <= 6
+
+
+def test_llm_json_action_parsing():
+    from app.openai_compat import parse_action
+
+    act = parse_action('Вот: {"reply": "", "tool": "find_slots", "args": {"program_id": 3, "date": "2026-11-15"}}')
+    assert act["tool"] == "find_slots"
+    assert act["args"]["program_id"] == 3
+    plain = parse_action("Здравствуйте! Чем помочь?")
+    assert plain["tool"] is None
+    assert plain["reply"].startswith("Здравствуйте")

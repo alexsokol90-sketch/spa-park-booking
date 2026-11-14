@@ -59,7 +59,7 @@ async def erase(guest_id: int) -> bool:
     async with db.tx() as conn:
         cur = await conn.execute(
             """UPDATE guests SET name = NULL, phone = NULL, birth_date = NULL, max_user_id = NULL,
-                   max_chat_id = NULL, loyalty_card = NULL, unsubscribed = true, deleted_at = now()
+                   max_chat_id = NULL, tg_chat_id = NULL, vk_user_id = NULL, loyalty_card = NULL, unsubscribed = true, deleted_at = now()
                WHERE id = %s AND deleted_at IS NULL RETURNING id""",
             (guest_id,),
         )

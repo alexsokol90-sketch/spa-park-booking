@@ -27,6 +27,8 @@ from . import (
     notify,
     privacy,
     scheduler,
+    tg_bot,
+    vk_bot,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
@@ -38,7 +40,7 @@ security = HTTPBasic(auto_error=False)
 async def lifespan(_app: FastAPI):
     await db.open_pool()
     await db.apply_schema()
-    tasks = [asyncio.create_task(scheduler.loop()), asyncio.create_task(max_bot.run())]
+    tasks = [asyncio.create_task(job()) for job in (scheduler.loop, max_bot.run, tg_bot.run, vk_bot.run)]
     yield
     for task in tasks:
         task.cancel()
@@ -92,7 +94,7 @@ async def chat_inbox(uid: int):
 
 @app.get("/api/health")
 async def health():
-    return {"ok": True, "ai": ai.enabled(), "max_bot": bool(config.MAX_BOT_TOKEN), "model": config.MODEL}
+    return {"ok": True, "ai": ai.enabled(), "channels": notify.active_channels(), "model": config.MODEL}
 
 
 # ---------- администратор ----------
@@ -231,11 +233,7 @@ async def admin_esc_reply(esc_id: int, inp: ReplyIn):
     guest = await guests.get(esc["guest_id"])
     await escalation.accept(esc_id)
     await guests.log(guest["id"], "admin", inp.text)
-    out = notify.Out(text=f"Администратор: {inp.text}")
-    if guest.get("max_user_id") and guest["max_user_id"] < 0:
-        notify.web_inbox[guest["id"]].append(out.as_dict())
-    else:
-        await max_bot.send_out(guest.get("max_user_id"), out)
+    await notify.deliver(guest, notify.Out(text=f"Администратор: {inp.text}"))
     events.publish("escalations")
     return {"ok": True}
 

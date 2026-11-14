@@ -600,7 +600,7 @@ async def on_awaited(ctx: Ctx, text: str) -> bool:
 
 async def on_text(ctx: Ctx, text: str) -> None:
     low = text.strip().lower()
-    if low in ("/start", "start", "начать", "меню", "menu"):
+    if low in ("/start", "start", "/menu", "начать", "меню", "menu"):
         await greet(ctx)
         return
     if nlu.is_unsubscribe(low):

@@ -202,3 +202,13 @@ CREATE TABLE IF NOT EXISTS job_runs (
     run_day date NOT NULL,
     PRIMARY KEY (job, run_day)
 );
+
+-- Каналы связи гостя (идемпотентные миграции).
+ALTER TABLE guests ADD COLUMN IF NOT EXISTS tg_chat_id bigint UNIQUE;
+ALTER TABLE guests ADD COLUMN IF NOT EXISTS vk_user_id bigint UNIQUE;
+
+-- Настройки, изменяемые во время работы (например, чат администратора в мессенджере).
+CREATE TABLE IF NOT EXISTS settings (
+    key   text PRIMARY KEY,
+    value text NOT NULL
+);

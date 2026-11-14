@@ -59,3 +59,28 @@ def test_phone_masked_for_model():
 
     assert mask_pd("мой номер 8 (912) 555-12-34, жду") == "мой номер [телефон], жду"
     assert mask_pd("завтра в 18:00") == "завтра в 18:00"
+
+
+def test_vk_keyboard_keeps_last_row_within_limits():
+    from app.vk_bot import MAX_BUTTONS, MAX_ROWS, fit_rows
+
+    rows = [[(f"item {i}", f"pretog:1:{i}")] for i in range(12)] + [[("Готово", "predone:1")]]
+    fitted = fit_rows(rows)
+    assert fitted[-1] == [("Готово", "predone:1")]
+    assert len(fitted) <= MAX_ROWS
+    assert sum(len(r) for r in fitted) <= MAX_BUTTONS
+
+
+def test_short_words_match_program():
+    progs = [*PROGRAMS, {"id": 4, "name": "Массаж головы", "name_en": "Head massage"}, {"id": 5, "name": "Массаж ног", "name_en": "Foot massage"}]
+    assert nlu.match_program("хочу массаж ног завтра", progs) == 5
+    assert nlu.match_program("массаж головы", progs) == 4
+
+
+def test_vk_keyboard_packs_rows_instead_of_dropping():
+    from app.vk_bot import fit_rows
+
+    rows = [[(f"prog {i}", f"prog:{i}")] for i in range(7)] + [[("Меню", "menu")]]
+    fitted = fit_rows(rows)
+    assert sum(len(r) for r in fitted) == 8
+    assert len(fitted) <= 6

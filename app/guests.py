@@ -36,6 +36,23 @@ async def by_channel(user_id: int, name: str | None = None, chat_id: int | None 
         )
 
 
+# Канал → колонка с идентификатором (только константы: имя колонки не приходит извне).
+EXTERNAL_LOOKUP = {
+    "tg": ("SELECT * FROM guests WHERE tg_chat_id = %s", "INSERT INTO guests (tg_chat_id, name) VALUES (%s, %s) RETURNING *"),
+    "vk": ("SELECT * FROM guests WHERE vk_user_id = %s", "INSERT INTO guests (vk_user_id, name) VALUES (%s, %s) RETURNING *"),
+}
+
+
+async def by_external(channel: str, ext_id: int, name: str | None = None) -> dict:
+    """Гость по идентификатору в Telegram или VK. Создаётся при первом обращении."""
+    select_sql, insert_sql = EXTERNAL_LOOKUP[channel]
+    async with db.tx() as conn:
+        guest = await db.fetchone(conn, select_sql, (ext_id,))
+        if guest:
+            return guest
+        return await db.fetchone(conn, insert_sql, (ext_id, name))
+
+
 async def get(guest_id: int) -> dict:
     return await db.query_one("SELECT * FROM guests WHERE id = %s", (guest_id,))
 
@@ -57,12 +74,17 @@ async def attach_phone(guest_id: int, phone: str) -> dict:
             await conn.execute(sql, (known["id"], guest_id))
         await conn.execute("DELETE FROM sessions WHERE guest_id = %s", (known["id"],))
         await conn.execute("UPDATE sessions SET guest_id = %s WHERE guest_id = %s", (known["id"], guest_id))
-        await conn.execute("UPDATE guests SET max_user_id = NULL WHERE id = %s", (guest_id,))
+        await conn.execute(
+            "UPDATE guests SET max_user_id = NULL, tg_chat_id = NULL, vk_user_id = NULL WHERE id = %s", (guest_id,)
+        )
         merged = await db.fetchone(
             conn,
-            """UPDATE guests SET max_user_id = %s, max_chat_id = %s, lang = %s, name = COALESCE(name, %s)
+            """UPDATE guests SET max_user_id = COALESCE(%s, max_user_id), max_chat_id = COALESCE(%s, max_chat_id),
+                   tg_chat_id = COALESCE(%s, tg_chat_id), vk_user_id = COALESCE(%s, vk_user_id),
+                   lang = %s, name = COALESCE(name, %s)
                WHERE id = %s RETURNING *""",
-            (current["max_user_id"], current["max_chat_id"], current["lang"], current["name"], known["id"]),
+            (current["max_user_id"], current["max_chat_id"], current["tg_chat_id"], current["vk_user_id"],
+             current["lang"], current["name"], known["id"]),
         )
         await conn.execute("DELETE FROM guests WHERE id = %s", (guest_id,))
         return merged

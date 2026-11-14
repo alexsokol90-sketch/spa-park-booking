@@ -83,8 +83,16 @@ def _first_match(text: str, patterns: list[tuple[str, str]]) -> str | None:
     return None
 
 
+STOP_WORDS = {"для", "мне", "как", "это", "что", "вас", "нас", "вам", "или", "the", "and", "you", "for", "are", "есть", "хочу"}
+
+
 def _stems(text: str) -> set[str]:
-    return {w[:5] for w in re.findall(r"[a-zа-яё]+", text.lower()) if len(w) >= 4}
+    words = re.findall(r"[a-zа-яё]+", text.lower())
+    return {w[:5] for w in words if len(w) >= 3 and w not in STOP_WORDS}
+
+
+def _similar(a: str, b: str) -> bool:
+    return min(len(a), len(b)) >= 3 and (a.startswith(b) or b.startswith(a))
 
 
 def stems_of(text: str) -> set[str]:
@@ -147,7 +155,7 @@ def match_program(text: str, programs: list[dict]) -> int | None:
     scored = []
     for prog in programs:
         name_stems = _stems(prog["name"] + " " + prog["name_en"])
-        hits = len(stems & name_stems)
+        hits = sum(1 for st in stems if any(_similar(st, n) for n in name_stems))
         if hits:
             scored.append((hits, prog["id"]))
     scored.sort(reverse=True)

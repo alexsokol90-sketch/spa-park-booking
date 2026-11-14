@@ -4,6 +4,7 @@
 Вся логика диалога — в dialog.py; здесь только приём и отправка.
 """
 import asyncio
+import json
 import logging
 import re
 
@@ -118,11 +119,25 @@ async def _on_started(upd: dict) -> None:
     await _deliver(user["user_id"], await dialog.handle(guest, payload="menu"))
 
 
+def _shape(value, depth: int = 0):
+    """Структура события без содержимого: ключи и типы (для диагностики, без персональных данных)."""
+    if depth > 4:
+        return "…"
+    if isinstance(value, dict):
+        return {k: _shape(v, depth + 1) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_shape(v, depth + 1) for v in value[:3]]
+    return type(value).__name__
+
+
 async def handle(upd: dict) -> None:
     kind = upd.get("update_type")
     try:
-        if kind == "message_created":
+        if kind == "message_created" and "message" in upd:
             await _on_message(upd["message"])
+        elif kind == "message_created":
+            # Формат без поля message (встречается у голосовых) — фиксируем структуру для разбора.
+            log.warning("message_created without message: %s", json.dumps(_shape(upd), ensure_ascii=False)[:1500])
         elif kind == "message_callback":
             await _on_callback(upd["callback"])
         elif kind == "bot_started":

@@ -564,7 +564,8 @@ async def escalate(ctx: Ctx, reason: str, details: str = "", silent: bool = Fals
     if silent:
         return
     if reason == "group":
-        ctx.say(ctx.tr("escalated_group", details=details), [menu_row(ctx)])
+        when = (" " + ("after 10:00" if ctx.lang == "en" else "после 10:00")) if is_night() else ""
+        ctx.say(ctx.tr("escalated_group", when=when), [[(ctx.tr("btn_groups"), "groups")], menu_row(ctx)])
         return
     ctx.say(ctx.tr("escalated_night" if is_night() else "escalated"), [menu_row(ctx)])
 

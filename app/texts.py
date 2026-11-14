@@ -145,8 +145,8 @@ T = {
         "en": "I've passed your question to the administrator. They are available from 10:00 and will reply in the morning.",
     },
     "escalated_group": {
-        "ru": "Для групп мы готовим отдельное предложение. Передала администратору ваши пожелания: {details}. Он свяжется с вами.",
-        "en": "We prepare a special offer for groups. I've passed your wishes to the administrator: {details}.",
+        "ru": "Для компаний мы готовим отдельное предложение. Я передала ваш запрос администратору — он подберёт программу и свяжется с вами{when}.\n\nЧто есть для групп: «Ян» (хаммам и джакузи, до 10 гостей, 4 часа — 18 000 ₽), «Инь» (сауна и джакузи, до 6 гостей — 14 000 ₽), «Тайна Хюррем» и «Магия трав».",
+        "en": "We prepare a special offer for groups. I've passed your request to our administrator, who will contact you{when}.\n\nFor groups we have Yang (hammam and jacuzzi, up to 10 guests, 4 hours — 18,000 RUB), Yin (sauna and jacuzzi, up to 6 guests — 14,000 RUB), Hurrem's secret and Magic of herbs.",
     },
     "health_note": {
         "ru": "Я не могу решать, подходит ли вам процедура. Вот общая информация, а ваш вопрос я передала администратору.",

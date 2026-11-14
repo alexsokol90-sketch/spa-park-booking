@@ -85,6 +85,34 @@ async def chat(inp: ChatIn):
     return {"messages": [o.as_dict() for o in outs]}
 
 
+class ConsentIn(BaseModel):
+    uid: int = Field(lt=0)
+    pd: bool
+    ads: bool = False
+
+
+@app.post("/api/chat/consent")
+async def chat_consent(inp: ConsentIn):
+    """Согласия, отмеченные гостем перед началом чата на сайте (канал web, текущая версия текстов)."""
+    if not inp.pd:
+        raise HTTPException(400, "Без согласия на обработку персональных данных чат недоступен")
+    guest = await guests.by_channel(inp.uid)
+    await guests.add_consent(guest["id"], "pd", True, channel="web")
+    await guests.add_consent(guest["id"], "ads", inp.ads, channel="web")
+    return {"ok": True}
+
+
+@app.get("/api/public/spaces")
+async def public_spaces():
+    rows = await db.query(
+        """SELECT s.id, s.code, s.name, s.description, count(p.id) AS programs,
+                  min(COALESCE(p.price, p.price_couple)) AS min_price
+           FROM spaces s JOIN programs p ON p.space_id = s.id AND p.active
+           GROUP BY s.id ORDER BY s.sort"""
+    )
+    return {"spaces": rows}
+
+
 @app.get("/api/chat/inbox")
 async def chat_inbox(uid: int):
     guest = await db.query_one("SELECT id FROM guests WHERE max_user_id = %s", (uid,))
@@ -370,6 +398,11 @@ app.mount("/static", StaticFiles(directory=WEB), name="static")
 @app.get("/")
 async def index():
     return FileResponse(WEB / "index.html")
+
+
+@app.get("/legal")
+async def legal_page():
+    return FileResponse(WEB / "legal.html")
 
 
 @app.get("/admin", dependencies=ADMIN)

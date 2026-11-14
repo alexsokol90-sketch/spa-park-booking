@@ -29,7 +29,7 @@ def _default_provider() -> str:
 
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "").strip() or _default_provider()
 MAX_BOT_TOKEN = os.getenv("MAX_BOT_TOKEN", "").strip()
-MAX_API = os.getenv("MAX_API", "https://platform-api2.max.ru")
+MAX_API = os.getenv("MAX_API", "https://platform-api.max.ru")
 MAX_ADMIN_CHAT_ID = os.getenv("MAX_ADMIN_CHAT_ID", "").strip()
 TG_BOT_TOKEN = os.getenv("TG_BOT_TOKEN", "").strip()
 TG_ADMIN_CHAT_ID = os.getenv("TG_ADMIN_CHAT_ID", "").strip()

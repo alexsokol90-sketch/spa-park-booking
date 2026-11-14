@@ -3,40 +3,135 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>СПА-парк — ассистент в MAX (эмулятор)</title>
-<link rel="stylesheet" href="static/chat.css">
+<title>СПА-парк — онлайн-запись круглосуточно</title>
+<meta name="description" content="Онлайн-запись в СПА-парк, Нижневартовск: 7 SPA-пространств, 35 программ. Выберите свободное время за минуту — днём и ночью.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 fill=%22%2326272b%22/%3E%3Ctext x=%2216%22 y=%2222%22 font-size=%2216%22 text-anchor=%22middle%22 fill=%22%23b79a72%22 font-family=%22serif%22%3ESP%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="static/site.css">
 </head>
 <body>
-<main class="layout">
-  <section class="intro">
-    <p class="eyebrow">СПА-парк · Нижневартовск</p>
-    <h1>Круглосуточный ИИ-ассистент и онлайн-запись</h1>
-    <p>Справа — тот же диалоговый движок, что работает в мессенджере MAX. Запись идёт на реальные свободные окна:
-      окно закрепляется в базе на 15 минут, бронь создаётся только после подтверждения.</p>
-    <ul class="facts">
-      <li>7 SPA-пространств · 35 программ · 6 мастеров</li>
-      <li>Свободный текст + кнопки · русский и английский</li>
-      <li>Ноль накладок: ограничение пересечений на уровне PostgreSQL</li>
-      <li>Жалобы, группы, вопросы о здоровье — сразу администратору</li>
-    </ul>
-    <p class="try">Попробуйте написать: <code>хочу пенный массаж завтра в 18</code>, <code>где вы находитесь?</code>,
-      <code>нас 8 человек, девичник</code>, <code>do you have a hammam?</code></p>
-    <p><a class="admin-link" href="admin" target="_blank" rel="noopener">Открыть интерфейс администратора →</a></p>
+<header class="top">
+  <div class="wrap top-row">
+    <a class="logo" href="./"><span class="logo-spa">Spa</span><span class="logo-park">Park</span></a>
+    <div class="top-info">
+      <span>г. Нижневартовск, ул. Индустриальная, 46</span>
+      <span>Ежедневно 10:00–00:00 · запись онлайн 24/7</span>
+    </div>
+    <a class="top-phone" href="tel:+73466491147">+7 (3466) 49-11-47</a>
+    <button class="btn btn-gold" type="button" data-open-chat>Записаться</button>
+  </div>
+</header>
+
+<main>
+  <section class="hero">
+    <div class="hero-bg" aria-hidden="true"></div>
+    <div class="wrap hero-content">
+      <p class="eyebrow">Онлайн-запись · круглосуточно</p>
+      <h1>Ваше путешествие<br>в мир <em>наслаждений</em></h1>
+      <p class="lead">Выберите программу и свободное время за минуту — даже ночью. Ассистент подскажет, ответит на вопросы и сразу закрепит за вами окно.</p>
+      <div class="hero-actions">
+        <button class="btn btn-gold btn-lg" type="button" data-open-chat>Подобрать и записаться</button>
+        <a class="btn btn-ghost btn-lg" href="https://max.ru/id860333297559_bot" target="_blank" rel="noopener">Написать в MAX</a>
+        <a class="btn btn-ghost btn-lg" href="https://t.me/Spaparkdemo_bot" target="_blank" rel="noopener">Telegram</a>
+      </div>
+      <ul class="hero-facts">
+        <li><b>7</b> SPA-пространств</li>
+        <li><b>35</b> программ</li>
+        <li><b>15 мин</b> окно держится за вами</li>
+      </ul>
+    </div>
   </section>
 
-  <section class="phone" aria-label="Чат с ассистентом">
-    <header class="phone-head">
-      <div class="avatar">SP</div>
-      <div><div class="title">СПА-парк</div><div class="sub">ассистент · онлайн 24/7</div></div>
-      <button id="reset" class="reset" title="Начать заново как новый гость" type="button">↺</button>
-    </header>
-    <div id="log" class="log" aria-live="polite"></div>
-    <form id="form" class="composer">
-      <input id="input" autocomplete="off" placeholder="Сообщение…" maxlength="2000">
-      <button type="submit" aria-label="Отправить">➤</button>
-    </form>
+  <section class="section" id="spaces">
+    <div class="wrap">
+      <h2 class="title"><span>✦</span> <em>SPA</em>-пространства <span>✦</span></h2>
+      <p class="subtitle">Турецкий хаммам, японская купель, сибирская кедровая бочка — выберите своё путешествие.</p>
+      <div class="spaces" id="spaceGrid"></div>
+    </div>
+  </section>
+
+  <section class="section section-dark">
+    <div class="wrap">
+      <h2 class="title light">Как проходит запись</h2>
+      <ol class="steps">
+        <li><b>Напишите своими словами</b><span>«Хочу молочную ванну для двоих в субботу вечером» — или выберите кнопками.</span></li>
+        <li><b>Выберите время</b><span>Ассистент покажет 3–5 реально свободных окон.</span></li>
+        <li><b>Окно ваше на 15 минут</b><span>Пока вы подтверждаете, это время никто другой не займёт.</span></li>
+        <li><b>Готово</b><span>Подтверждение с мастером и адресом, накануне — напоминание.</span></li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="section" id="info">
+    <div class="wrap info">
+      <div>
+        <h3>Как нас найти</h3>
+        <p>г. Нижневартовск, ул. Индустриальная, 46, комплекс Park Side Inn</p>
+        <p>Ежедневно с 10:00 до 00:00</p>
+        <p><a href="tel:+73466491147">+7 (3466) 49-11-47</a><br><a href="tel:+79822000086">+7 (982) 200-00-86</a></p>
+      </div>
+      <div>
+        <h3>Перед визитом</h3>
+        <p>Приходите за 10–15 минут. При опоздании время программы сокращается. Перенести или отменить запись можно в чате не позднее чем за 24 часа.</p>
+        <p><a href="legal#rules">Спа-этикет и противопоказания</a></p>
+      </div>
+      <div>
+        <h3>Подарочные сертификаты</h3>
+        <p>Номиналом 3 000, 5 000, 10 000 и 20 000 ₽ или на конкретную программу.</p>
+        <button class="link-btn" type="button" data-open-chat data-payload="faq:certificate">Подробнее в чате →</button>
+      </div>
+    </div>
   </section>
 </main>
-<script src="static/chat.js"></script>
+
+<footer class="footer">
+  <div class="wrap footer-row">
+    <div>
+      <div class="logo small"><span class="logo-spa">Spa</span><span class="logo-park">Park</span></div>
+      <p>Оператор персональных данных: ООО «Парк Сайд инн», ИНН 8602296832.<br>628600, г. Нижневартовск, ул. Индустриальная, 46.</p>
+    </div>
+    <nav class="footer-links">
+      <a href="legal#privacy">Политика обработки персональных данных</a>
+      <a href="legal#consent-pd">Согласие на обработку персональных данных</a>
+      <a href="legal#consent-ads">Согласие на получение рекламы</a>
+      <a href="legal#cookies">Политика cookie</a>
+      <a href="legal#rules">Правила посещения</a>
+      <a class="staff" href="admin">Вход для персонала</a>
+    </nav>
+  </div>
+</footer>
+
+<!-- Чат-ассистент -->
+<button class="chat-fab" type="button" data-open-chat aria-label="Открыть чат с ассистентом">
+  <span class="dot"></span> Онлайн-запись
+</button>
+<aside class="chat" id="chat" aria-label="Ассистент СПА-парка" hidden>
+  <header class="chat-head">
+    <div class="avatar">SP</div>
+    <div><div class="chat-title">Ассистент СПА-парка</div><div class="chat-sub"><span class="dot"></span> на связи круглосуточно</div></div>
+    <button class="icon-btn" id="chatReset" type="button" title="Начать заново">↺</button>
+    <button class="icon-btn" id="chatClose" type="button" aria-label="Закрыть">✕</button>
+  </header>
+
+  <div class="consent" id="consentGate">
+    <h3>Прежде чем начать</h3>
+    <p>Чтобы записать вас, ассистенту понадобятся имя и телефон. Пожалуйста, подтвердите согласие.</p>
+    <label class="check"><input type="checkbox" id="cPd"> <span>Я даю <a href="legal#consent-pd" target="_blank">согласие на обработку персональных данных</a> и ознакомлен(а) с <a href="legal#privacy" target="_blank">политикой</a> <b class="req">обязательно</b></span></label>
+    <label class="check"><input type="checkbox" id="cAds"> <span>Хочу получать поздравления и информацию об акциях (<a href="legal#consent-ads" target="_blank">согласие на рекламу</a>) <i>по желанию</i></span></label>
+    <button class="btn btn-gold btn-block" id="consentOk" type="button" disabled>Начать</button>
+    <p class="fine">Без согласия на обработку данных можно посмотреть программы и цены на сайте или позвонить: +7 (3466) 49-11-47.</p>
+  </div>
+
+  <div class="chat-log" id="log" aria-live="polite" hidden></div>
+  <form class="composer" id="form" hidden>
+    <input id="input" autocomplete="off" placeholder="Напишите, что хотите…" maxlength="2000">
+    <button type="submit" aria-label="Отправить">➤</button>
+  </form>
+</aside>
+
+<div class="cookie" id="cookie" hidden>
+  <p>Мы используем cookie и локальное хранилище браузера, чтобы чат помнил ваш диалог. Сервисы аналитики и рекламные трекеры не подключены. <a href="legal#cookies">Подробнее</a></p>
+  <button class="btn btn-gold" id="cookieOk" type="button">Принимаю</button>
+</div>
+<script src="static/site.js"></script>
 </body>
 </html>

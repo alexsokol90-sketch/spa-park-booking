@@ -21,6 +21,8 @@ MAX_API = os.getenv("MAX_API", "https://platform-api2.max.ru")
 MAX_ADMIN_CHAT_ID = os.getenv("MAX_ADMIN_CHAT_ID", "").strip()
 TG_BOT_TOKEN = os.getenv("TG_BOT_TOKEN", "").strip()
 TG_ADMIN_CHAT_ID = os.getenv("TG_ADMIN_CHAT_ID", "").strip()
+# Адрес Bot API. Из РФ api.telegram.org доступен нестабильно — можно указать собственный ретранслятор.
+TG_API_BASE = os.getenv("TG_API_BASE", "https://api.telegram.org").rstrip("/")
 VK_GROUP_TOKEN = os.getenv("VK_GROUP_TOKEN", "").strip()
 VK_GROUP_ID = os.getenv("VK_GROUP_ID", "").strip()
 VK_ADMIN_PEER_ID = os.getenv("VK_ADMIN_PEER_ID", "").strip()

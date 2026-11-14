@@ -12,7 +12,7 @@ import httpx
 from . import config, dialog, guests, notify, settings
 
 log = logging.getLogger("tg_bot")
-API = "https://api.telegram.org/bot{token}/{method}"
+API = "{base}/bot{token}/{method}"
 ADMIN_KEY = "tg_admin_chat_id"
 BOLD_RE = re.compile(r"\*([^*\n]+)\*")
 _client: httpx.AsyncClient | None = None
@@ -27,7 +27,7 @@ def _html(text: str) -> str:
 async def call(method: str, **payload) -> dict | None:
     if _client is None:
         return None
-    resp = await _client.post(API.format(token=config.TG_BOT_TOKEN, method=method), json=payload)
+    resp = await _client.post(API.format(base=config.TG_API_BASE, token=config.TG_BOT_TOKEN, method=method), json=payload)
     data = resp.json()
     if not data.get("ok"):
         log.warning("%s failed: %s", method, str(data)[:300])

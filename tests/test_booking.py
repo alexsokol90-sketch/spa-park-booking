@@ -76,7 +76,7 @@ def test_one_active_hold_per_guest():
 def test_confirm_expired_hold_fails():
     async def scenario():
         g1, _ = await _two_guests()
-        prog = await db.query_one("SELECT id FROM programs WHERE code = 'rl-face-massage'")
+        prog = await db.query_one("SELECT id FROM programs WHERE code = 'rl-ice'")
         day = booking.now().date() + timedelta(days=6)
         slot = (await booking.find_slots(prog["id"], day))[0]
         hold = await booking.create_hold(g1, prog["id"], slot.start, None, "bot")

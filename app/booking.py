@@ -28,6 +28,7 @@ class Slot:
     start: datetime
     master_id: int
     master_name: str
+    guests: int = 1
 
     def as_dict(self) -> dict:
         return {
@@ -35,6 +36,7 @@ class Slot:
             "start": self.start.isoformat(),
             "master_id": self.master_id,
             "master_name": self.master_name,
+            "guests": self.guests,
         }
 
 
@@ -78,7 +80,7 @@ async def _busy(conn, day: date) -> tuple[dict[int, list], dict[int, list]]:
     start, end = day_bounds(day)
     rows = await db.fetch(
         conn,
-        """SELECT space_id, master_id, starts_at, ends_at, busy_until FROM bookings
+        """SELECT space_id, master_id, starts_at, master_until, busy_until FROM bookings
            WHERE status IN ('hold', 'confirmed') AND (status <> 'hold' OR hold_expires_at > now())
              AND starts_at < %s AND busy_until > %s""",
         (end, start - timedelta(hours=4)),
@@ -87,7 +89,7 @@ async def _busy(conn, day: date) -> tuple[dict[int, list], dict[int, list]]:
     masters: dict[int, list] = {}
     for r in rows:
         spaces.setdefault(r["space_id"], []).append((r["starts_at"], r["busy_until"]))
-        masters.setdefault(r["master_id"], []).append((r["starts_at"], r["ends_at"]))
+        masters.setdefault(r["master_id"], []).append((r["starts_at"], r["master_until"]))
     return spaces, masters
 
 
@@ -118,19 +120,28 @@ def _spread(items: list, limit: int) -> list:
     return [items[round(i * step)] for i in range(limit)]
 
 
-async def free_slots(conn, program_id: int, day: date) -> list[Slot]:
+def price_for(prog: dict, guests: int) -> int | None:
+    return prog["price_couple"] if guests >= 2 else prog["price"]
+
+
+def default_guests(prog: dict) -> int:
+    return 1 if prog["price"] is not None else 2
+
+
+async def free_slots(conn, program_id: int, day: date, guests: int = 1) -> list[Slot]:
     prog = await get_program(conn, program_id)
     space_busy, master_busy = await _busy(conn, day)
     masters = await db.fetch(conn, "SELECT id, name FROM masters WHERE active ORDER BY id")
     dur = timedelta(minutes=prog["duration_min"])
+    master_dur = timedelta(minutes=prog["master_min"])
     cleanup = timedelta(minutes=prog["cleanup_min"])
     result = []
     for start in _candidate_starts(day, prog["duration_min"]):
         if _overlaps(start, start + dur + cleanup, space_busy.get(prog["space_id"], [])):
             continue
-        master = _pick_master(start, start + dur, masters, master_busy)
+        master = _pick_master(start, start + master_dur, masters, master_busy)
         if master:
-            result.append(Slot(program_id, start, master["id"], master["name"]))
+            result.append(Slot(program_id, start, master["id"], master["name"], guests))
     return result
 
 
@@ -139,10 +150,12 @@ async def free_slots_public(program_id: int, day: date) -> list[Slot]:
         return await free_slots(conn, program_id, day)
 
 
-async def find_slots(program_id: int, day: date, around: datetime | None = None, limit: int = 5) -> list[Slot]:
+async def find_slots(
+    program_id: int, day: date, around: datetime | None = None, limit: int = 5, guests: int = 1
+) -> list[Slot]:
     """Реальные свободные окна. around — желаемое время: берутся ближайшие к нему."""
     async with db.tx() as conn:
-        slots = await free_slots(conn, program_id, day)
+        slots = await free_slots(conn, program_id, day, guests)
     if around:
         slots = sorted(slots, key=lambda s: abs((s.start - around).total_seconds()))[:limit]
         return sorted(slots, key=lambda s: s.start)
@@ -160,7 +173,9 @@ async def nearest_days_with_slots(program_id: int, days: int = 7) -> list[date]:
     return out
 
 
-async def create_hold(guest_id: int, program_id: int, start: datetime, master_id: int | None, source: str) -> dict:
+async def create_hold(
+    guest_id: int, program_id: int, start: datetime, master_id: int | None, source: str, guests: int | None = None
+) -> dict:
     """Шаг 2: захват окна на 15 минут. Предыдущий захват гостя снимается."""
     try:
         async with db.tx() as conn:
@@ -169,17 +184,23 @@ async def create_hold(guest_id: int, program_id: int, start: datetime, master_id
                 "UPDATE bookings SET status = 'cancelled' WHERE guest_id = %s AND status = 'hold'", (guest_id,)
             )
             prog = await get_program(conn, program_id)
+            guests = guests or default_guests(prog)
+            price = price_for(prog, guests)
+            if price is None:
+                raise BookingError("Программа недоступна для такого числа гостей")
             end = start + timedelta(minutes=prog["duration_min"])
+            master_until = start + timedelta(minutes=prog["master_min"])
             busy_until = end + timedelta(minutes=prog["cleanup_min"])
             if master_id is None:
-                master_id = await _free_master_id(conn, start, end)
+                master_id = await _free_master_id(conn, start, master_until)
             row = await db.fetchone(
                 conn,
-                """INSERT INTO bookings (guest_id, program_id, space_id, master_id, starts_at, ends_at,
-                       busy_until, status, source, hold_expires_at)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,'hold',%s, now() + make_interval(mins => %s))
+                """INSERT INTO bookings (guest_id, program_id, space_id, master_id, starts_at, ends_at, master_until,
+                       busy_until, status, source, hold_expires_at, guests_count, price_total)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'hold',%s, now() + make_interval(mins => %s), %s, %s)
                    RETURNING id""",
-                (guest_id, program_id, prog["space_id"], master_id, start, end, busy_until, source, config.HOLD_MINUTES),
+                (guest_id, program_id, prog["space_id"], master_id, start, end, master_until, busy_until, source,
+                 config.HOLD_MINUTES, guests, price),
             )
     except errors.ExclusionViolation as exc:
         raise SlotTaken from exc
@@ -192,7 +213,7 @@ async def _free_master_id(conn, start: datetime, end: datetime) -> int:
         conn,
         """SELECT m.id FROM masters m WHERE m.active AND NOT EXISTS (
                SELECT 1 FROM bookings b WHERE b.master_id = m.id AND b.status IN ('hold', 'confirmed')
-                 AND tstzrange(b.starts_at, b.ends_at) && tstzrange(%s, %s))
+                 AND tstzrange(b.starts_at, b.master_until) && tstzrange(%s, %s))
            ORDER BY m.id LIMIT 1""",
         (start, end),
     )
@@ -237,8 +258,8 @@ async def cancel(booking_id: int, guest_id: int | None = None) -> bool:
 
 
 BOOKING_SELECT = """
-    SELECT b.*, p.name AS program_name, p.name_en AS program_name_en, p.price, p.duration_min,
-           p.cleanup_min, s.name AS space_name, s.name_en AS space_name_en, m.name AS master_name,
+    SELECT b.*, p.name AS program_name, p.name_en AS program_name_en, b.price_total AS price, p.duration_min,
+           p.cleanup_min, p.master_min, p.prepay, s.name AS space_name, s.name_en AS space_name_en, m.name AS master_name,
            g.name AS guest_name, g.phone AS guest_phone, g.lang AS guest_lang,
            COALESCE((SELECT json_agg(json_build_object('id', i.id, 'name', i.name, 'name_en', i.name_en,
                                                        'qty', bp.qty, 'price', i.price) ORDER BY i.id)
@@ -276,15 +297,18 @@ async def day_bookings(day: date) -> list[dict]:
     )
 
 
-async def alternatives(program_id: int, wanted: datetime, limit: int = 3) -> list[Slot]:
+async def alternatives(program_id: int, wanted: datetime, limit: int = 3, guests: int = 1) -> list[Slot]:
     """После отказа: та же программа в пределах ±2 часов или похожая программа в то же время."""
     day = wanted.astimezone(config.TZ).date()
     window = timedelta(hours=2)
-    same = [s for s in await find_slots(program_id, day, around=wanted, limit=10) if abs(s.start - wanted) <= window]
+    same = [
+        s for s in await find_slots(program_id, day, around=wanted, limit=10, guests=guests)
+        if abs(s.start - wanted) <= window
+    ]
     options = same[:limit]
     if len(options) < limit:
-        for prog_id in await similar_programs(program_id):
-            near = await find_slots(prog_id, day, around=wanted, limit=1)
+        for prog_id in await similar_programs(program_id, guests):
+            near = await find_slots(prog_id, day, around=wanted, limit=1, guests=guests)
             if near and abs(near[0].start - wanted) <= window:
                 options.append(near[0])
             if len(options) >= limit:
@@ -292,13 +316,14 @@ async def alternatives(program_id: int, wanted: datetime, limit: int = 3) -> lis
     return sorted(options, key=lambda s: abs(s.start - wanted))[:limit]
 
 
-async def similar_programs(program_id: int) -> list[int]:
+async def similar_programs(program_id: int, guests: int = 1) -> list[int]:
+    price_col = "p.price_couple" if guests >= 2 else "p.price"
     async with db.tx() as conn:
         base = await get_program(conn, program_id)
         rows = await db.fetch(
             conn,
-            """SELECT p.id, p.tags, p.duration_min FROM programs p JOIN spaces s ON s.id = p.space_id
-               WHERE p.active AND p.id <> %s AND s.is_relax = %s""",
+            f"""SELECT p.id, p.tags, p.duration_min FROM programs p JOIN spaces s ON s.id = p.space_id
+               WHERE p.active AND p.id <> %s AND s.is_relax = %s AND {price_col} IS NOT NULL""",
             (program_id, base["is_relax"]),
         )
     tags = set(base["tags"].split(","))

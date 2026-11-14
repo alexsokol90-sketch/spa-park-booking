@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS spaces (
     name        text NOT NULL,
     name_en     text NOT NULL,
     description text NOT NULL DEFAULT '',
+    description_en text NOT NULL DEFAULT '',
     is_relax    boolean NOT NULL DEFAULT false,
     sort        int NOT NULL DEFAULT 0
 );
@@ -28,10 +29,14 @@ CREATE TABLE IF NOT EXISTS programs (
     name         text NOT NULL,
     name_en      text NOT NULL,
     description  text NOT NULL DEFAULT '',
+    description_en text NOT NULL DEFAULT '',
     duration_min int NOT NULL CHECK (duration_min > 0),
+    master_min   int NOT NULL CHECK (master_min > 0),
     cleanup_min  int NOT NULL DEFAULT 15 CHECK (cleanup_min >= 0),
-    price        int NOT NULL CHECK (price >= 0),
+    price        int CHECK (price >= 0),
+    price_couple int CHECK (price_couple >= 0),
     max_guests   int NOT NULL DEFAULT 2,
+    prepay       boolean NOT NULL DEFAULT false,
     tags         text NOT NULL DEFAULT '',
     active       boolean NOT NULL DEFAULT true
 );
@@ -46,7 +51,28 @@ CREATE TABLE IF NOT EXISTS guests (
     lang          text NOT NULL DEFAULT 'ru',
     loyalty_card  text UNIQUE,
     loyalty_points int NOT NULL DEFAULT 0,
+    unsubscribed  boolean NOT NULL DEFAULT false,
+    deleted_at    timestamptz,
     created_at    timestamptz NOT NULL DEFAULT now()
+);
+
+-- Версии текстов согласий: что именно подтверждал гость.
+CREATE TABLE IF NOT EXISTS consent_texts (
+    version    text NOT NULL,
+    kind       text NOT NULL CHECK (kind IN ('pd', 'ads', 'rules')),
+    text       text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (version, kind)
+);
+
+-- Журнал доступа к персональным данным (кто, когда, к чьим данным, что сделал).
+CREATE TABLE IF NOT EXISTS pd_access_log (
+    id         bigserial PRIMARY KEY,
+    actor      text NOT NULL,
+    action     text NOT NULL,
+    guest_id   int,
+    details    text NOT NULL DEFAULT '',
+    created_at timestamptz NOT NULL DEFAULT now()
 );
 
 -- Согласия: факт, дата/время, версия текста, канал.
@@ -69,6 +95,7 @@ CREATE TABLE IF NOT EXISTS bookings (
     master_id       int NOT NULL REFERENCES masters(id),
     starts_at       timestamptz NOT NULL,
     ends_at         timestamptz NOT NULL,
+    master_until    timestamptz NOT NULL,
     busy_until      timestamptz NOT NULL,
     status          text NOT NULL CHECK (status IN ('hold', 'confirmed', 'cancelled', 'expired', 'completed', 'no_show')),
     source          text NOT NULL CHECK (source IN ('bot', 'admin', 'web')),
@@ -78,6 +105,7 @@ CREATE TABLE IF NOT EXISTS bookings (
     payment_status  text NOT NULL DEFAULT 'unpaid' CHECK (payment_status IN ('unpaid', 'prepaid', 'paid', 'certificate')),
     payment_method  text,
     guests_count    int NOT NULL DEFAULT 1,
+    price_total     int NOT NULL DEFAULT 0,
     note            text NOT NULL DEFAULT '',
     created_at      timestamptz NOT NULL DEFAULT now(),
     confirmed_at    timestamptz,
@@ -87,7 +115,7 @@ CREATE TABLE IF NOT EXISTS bookings (
         space_id WITH =, tstzrange(starts_at, busy_until) WITH &&
     ) WHERE (status IN ('hold', 'confirmed')),
     CONSTRAINT no_master_overlap EXCLUDE USING gist (
-        master_id WITH =, tstzrange(starts_at, ends_at) WITH &&
+        master_id WITH =, tstzrange(starts_at, master_until) WITH &&
     ) WHERE (status IN ('hold', 'confirmed'))
 );
 -- Один активный захват на гостя.

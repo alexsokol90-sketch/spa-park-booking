@@ -68,6 +68,10 @@ async def attach_phone(guest_id: int, phone: str) -> dict:
         return merged
 
 
+async def set_name(guest_id: int, name: str) -> None:
+    await db.query("UPDATE guests SET name = %s WHERE id = %s RETURNING id", (name, guest_id))
+
+
 async def set_lang(guest_id: int, lang: str) -> None:
     await db.query("UPDATE guests SET lang = %s WHERE id = %s RETURNING id", (lang, guest_id))
 

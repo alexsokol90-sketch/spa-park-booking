@@ -7,7 +7,8 @@ from datetime import date, datetime
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -24,6 +25,7 @@ from . import (
     marketing,
     max_bot,
     notify,
+    privacy,
     scheduler,
 )
 
@@ -164,7 +166,9 @@ async def admin_hold(inp: AdminHoldIn):
 
 @app.get("/api/admin/bookings/{booking_id}", dependencies=ADMIN)
 async def admin_booking(booking_id: int):
-    return await booking.get_booking(booking_id)
+    bk = await booking.get_booking(booking_id)
+    await privacy.audit(config.ADMIN_USER, "view_booking", bk["guest_id"], f"бронь №{booking_id}")
+    return bk
 
 
 @app.post("/api/admin/bookings/{booking_id}/confirm", dependencies=ADMIN)
@@ -197,7 +201,10 @@ async def admin_payment(booking_id: int, inp: PaymentIn):
 
 @app.get("/api/admin/escalations", dependencies=ADMIN)
 async def admin_escalations():
-    return {"items": await escalation.open_list()}
+    items = await escalation.open_list()
+    for item in items:
+        await privacy.audit(config.ADMIN_USER, "view_dialog", item["guest_id"], f"запрос №{item['id']}")
+    return {"items": items}
 
 
 @app.post("/api/admin/escalations/{esc_id}/accept", dependencies=ADMIN)
@@ -266,11 +273,44 @@ async def admin_guests(q: str = ""):
                   {marketing.LAST_VISIT} AS last_visit,
                   (SELECT count(*) FROM bookings b WHERE b.guest_id = g.id AND b.status = 'completed') AS visits,
                   {marketing.ADS_OK} AS ads_ok
-           FROM guests g WHERE g.phone IS NOT NULL AND (g.name ILIKE %s OR g.phone LIKE %s)
+           FROM guests g WHERE g.phone IS NOT NULL AND g.deleted_at IS NULL AND (g.name ILIKE %s OR g.phone LIKE %s)
            ORDER BY g.name LIMIT 100""",
         (like, like),
     )
+    await privacy.audit(config.ADMIN_USER, "list_guests", None, f"поиск «{q}», строк: {len(rows)}")
     return {"items": rows}
+
+
+@app.get("/api/admin/guests/{guest_id}", dependencies=ADMIN)
+async def admin_guest_card(guest_id: int):
+    card = await privacy.guest_card(guest_id)
+    if not card:
+        raise HTTPException(404)
+    await privacy.audit(config.ADMIN_USER, "view_guest", guest_id)
+    return card
+
+
+@app.get("/api/admin/guests/{guest_id}/export", dependencies=ADMIN)
+async def admin_guest_export(guest_id: int):
+    data = await privacy.export(guest_id)
+    if not data:
+        raise HTTPException(404)
+    await privacy.audit(config.ADMIN_USER, "export", guest_id, "выгрузка по запросу субъекта ПДн")
+    return JSONResponse(
+        jsonable_encoder(data), headers={"Content-Disposition": f'attachment; filename="guest-{guest_id}.json"'}
+    )
+
+
+@app.post("/api/admin/guests/{guest_id}/erase", dependencies=ADMIN)
+async def admin_guest_erase(guest_id: int):
+    done = await privacy.erase(guest_id)
+    await privacy.audit(config.ADMIN_USER, "erase", guest_id, "удаление по запросу субъекта ПДн" if done else "уже удалён")
+    return {"ok": done}
+
+
+@app.get("/api/admin/pd-log", dependencies=ADMIN)
+async def admin_pd_log():
+    return {"items": await privacy.access_log()}
 
 
 @app.get("/api/admin/marketing/segments", dependencies=ADMIN)
@@ -283,6 +323,9 @@ class CampaignIn(BaseModel):
     template: str = Field(min_length=5, max_length=1500)
     name: str = Field(default="Рассылка", max_length=100)
     goal: str = Field(default="", max_length=300)
+    param: str | None = Field(default=None, max_length=40)
+    use_ai: bool = False
+    texts: dict[int, str] | None = None
 
 
 def _check_segment(segment: str) -> None:
@@ -293,13 +336,15 @@ def _check_segment(segment: str) -> None:
 @app.post("/api/admin/marketing/preview", dependencies=ADMIN)
 async def mk_preview(inp: CampaignIn):
     _check_segment(inp.segment)
-    return {"items": await marketing.preview(inp.segment, inp.template)}
+    items = await marketing.preview(inp.segment, inp.template, inp.param, inp.goal, inp.use_ai)
+    return {"items": items, "ai": ai.enabled()}
 
 
 @app.post("/api/admin/marketing/send", dependencies=ADMIN)
 async def mk_send(inp: CampaignIn):
     _check_segment(inp.segment)
-    return await marketing.send(inp.segment, inp.template, inp.name)
+    await privacy.audit(config.ADMIN_USER, "campaign", None, f"рассылка {inp.segment}")
+    return await marketing.send(inp.segment, inp.template, inp.name, inp.param, inp.texts)
 
 
 @app.post("/api/admin/marketing/generate", dependencies=ADMIN)

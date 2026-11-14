@@ -31,8 +31,8 @@ T = {
     },
     "choose_program": {"ru": "Программы пространства «{space}»:", "en": "Programs in the {space} space:"},
     "program_card": {
-        "ru": "*{name}*\n{descr}\nДлительность: {dur} мин · {price} ₽ · до {guests} гостей",
-        "en": "*{name}*\n{descr}\nDuration: {dur} min · {price} RUB · up to {guests} guests",
+        "ru": "*{name}*\n{descr}\nДлительность: {dur} мин · {price}",
+        "en": "*{name}*\n{descr}\nDuration: {dur} min · {price}",
     },
     "btn_pick_time": {"ru": "Выбрать время", "en": "Choose time"},
     "choose_day": {"ru": "На какой день вас записать?", "en": "Which day would you like?"},
@@ -157,6 +157,77 @@ T = {
         "en": "Sorry, I didn't quite understand. Please choose an option below or rephrase.",
     },
     "prices_intro": {"ru": "Наши программы:", "en": "Our programs:"},
+    "btn_more": {"ru": "Ещё", "en": "More"},
+    "more_title": {"ru": "Что вас интересует?", "en": "What would you like to know?"},
+    "btn_route": {"ru": "Как добраться и парковка", "en": "Directions & parking"},
+    "btn_hours": {"ru": "Часы работы", "en": "Opening hours"},
+    "btn_cert": {"ru": "Сертификаты", "en": "Gift certificates"},
+    "btn_couple": {"ru": "СПА для двоих", "en": "SPA for two"},
+    "btn_groups": {"ru": "Компании и девичники", "en": "Groups & hen parties"},
+    "btn_etiquette": {"ru": "Спа-этикет", "en": "Spa etiquette"},
+    "btn_promo": {"ru": "Акции", "en": "Special offers"},
+    "btn_payment": {"ru": "Оплата", "en": "Payment"},
+    "couple_title": {"ru": "Программы для двоих:", "en": "Programs for two:"},
+    "groups_ask": {
+        "ru": "Напишите одним сообщением: сколько будет гостей, на какую дату и время и что хотелось бы. Я передам администратору — он подберёт программу и свяжется с вами.",
+        "en": "Please write in one message: how many guests, the date and time, and your wishes. I'll pass it to our administrator who will contact you.",
+    },
+    "btn_one_guest": {"ru": "1 гость · {price} ₽", "en": "1 guest · {price} RUB"},
+    "btn_two_guests": {"ru": "Для двоих · {price} ₽", "en": "For two · {price} RUB"},
+    "price_line_1": {"ru": "{price} ₽", "en": "{price} RUB"},
+    "price_line_2": {"ru": "для двоих {price} ₽", "en": "for two {price} RUB"},
+    "prepay_note": {
+        "ru": "Эта программа бронируется только с предоплатой — администратор свяжется с вами для оплаты.",
+        "en": "This program requires a prepayment — our administrator will contact you about payment.",
+    },
+    "need_name": {"ru": "Как к вам обращаться?", "en": "How may I address you?"},
+    "consent_title": {
+        "ru": "Отметьте, пожалуйста, согласия (версия {version}). Первые два нужны для записи, третье — по желанию.",
+        "en": "Please tick the consents (version {version}). The first two are required for booking, the third is optional.",
+    },
+    "cb_pd": {"ru": "Обработка персональных данных", "en": "Personal data processing"},
+    "cb_rules": {"ru": "Правила и противопоказания", "en": "Rules & contraindications"},
+    "cb_ads": {"ru": "Поздравления и акции", "en": "Greetings & offers"},
+    "btn_continue": {"ru": "Продолжить", "en": "Continue"},
+    "btn_consent_texts": {"ru": "Тексты согласий", "en": "Consent texts"},
+    "consent_required": {
+        "ru": "Для записи нужны первые два согласия. Отметьте их, пожалуйста.",
+        "en": "The first two consents are required for booking. Please tick them.",
+    },
+    "confirmed_full": {
+        "ru": (
+            "Вы записаны, {name}.\n\n"
+            "*{program}*\n{when}\nДлительность: {dur} мин · гостей: {guests}\nМастер: {master}\nСтоимость: {price} ₽\n"
+            "Адрес: ул. Индустриальная, 46 (Park Side Inn)\n\n"
+            "Приходите за 10–15 минут. {rules}\n\nНакануне в 10:00 я попрошу подтвердить визит."
+        ),
+        "en": (
+            "You're booked, {name}.\n\n"
+            "*{program}*\n{when}\nDuration: {dur} min · guests: {guests}\nTherapist: {master}\nPrice: {price} RUB\n"
+            "Address: 46 Industrialnaya St. (Park Side Inn)\n\n"
+            "Please arrive 10–15 minutes early. {rules}\n\nThe day before at 10:00 I'll ask you to confirm your visit."
+        ),
+    },
+    "btn_etiquette_full": {"ru": "Спа-этикет полностью", "en": "Full spa etiquette"},
+    "unsubscribed": {
+        "ru": "Готово, вы отписаны от поздравлений и акций. Напоминания о ваших записях продолжат приходить.",
+        "en": "Done, you've unsubscribed from greetings and offers. Booking reminders will still arrive.",
+    },
+    "reminder_soon": {
+        "ru": "{name}, ждём вас сегодня в {time}: «{program}». Адрес: ул. Индустриальная, 46 (Park Side Inn). Приходите за 10–15 минут.",
+        "en": "{name}, we look forward to seeing you today at {time}: {program}. Address: 46 Industrialnaya St. (Park Side Inn). Please arrive 10–15 minutes early.",
+    },
+    "after_visit": {
+        "ru": "{name}, спасибо, что были у нас вчера. Как вам «{program}»? Будем благодарны за отзыв — просто напишите его сюда. А когда захочется снова отдохнуть, я подберу время.",
+        "en": "{name}, thank you for visiting us yesterday. How was {program}? We'd appreciate your feedback — just write it here. Whenever you'd like to relax again, I'll find a time.",
+    },
+    "abandoned": {
+        "ru": "Окно на «{program}» освободилось, но его можно выбрать снова — я подберу свободное время, если захотите.",
+        "en": "The slot for {program} was released, but you can choose it again — I'll find a free time whenever you like.",
+    },
+    "btn_unsubscribe": {"ru": "Отписаться", "en": "Unsubscribe"},
+    "review_thanks": {"ru": "Спасибо за отзыв! Передам команде.", "en": "Thank you for your feedback! I'll pass it on to the team."},
+    "by_tag_title": {"ru": "Вот что у нас есть:", "en": "Here is what we have:"},
     "lang_set": {"ru": "Хорошо, продолжаем на русском.", "en": "Sure, let's continue in English."},
 }
 

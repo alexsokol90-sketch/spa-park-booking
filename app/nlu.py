@@ -26,7 +26,9 @@ INTENT_PATTERNS = [
     ("hours", r"час\w* работ|режим|во сколько|до скольки|открыт|работаете|hours|open"),
     ("payment", r"оплат|карт\w*|наличн|предоплат|pay"),
     ("certificate", r"сертификат|подар|certificate|gift"),
-    ("rules", r"правил|опозда|rules"),
+    ("etiquette", r"этикет|правил|опозда|etiquette|rules"),
+    ("promo", r"акци|скидк|промо|special offer|discount|promo"),
+    ("couple", r"для двоих|вдво[её]м|свидани|парн\w+ программ|for two|couple|date"),
     ("prices", r"цен|стоимост|сколько стоит|прайс|price|cost"),
     ("programs", r"что у вас есть|какие (есть )?(программ|услуг)|расскаж|программ|услуг|what do you have|programs"),
     ("book", r"запис|забронир|свобод|окн|хочу|book|reserv|free slot"),
@@ -43,6 +45,20 @@ SPACE_STEMS = {
     "relax": ("релак", "relax"),
 }
 
+# Вид процедуры → тег каталога (для запросов вида «хочу молочную ванну», «do you have a hammam?»).
+TAG_STEMS = {
+    "молочная ванна": ("молоч", "milk"),
+    "хаммам": ("хамма", "hamma", "кесе", "kese"),
+    "парение": ("парен", "парит", "попар", "веник", "broom", "banya"),
+    "обёртывание": ("обёрт", "оберт", "wrap"),
+    "кедровая бочка": ("кедр", "бочк", "cedar", "barre"),
+    "сауна": ("сауна", "сауну", "sauna"),
+    "лицо": ("лица", "лицо", "facia", "face"),
+}
+
+# Общие слова, которые не указывают на конкретную программу.
+GENERIC_STEMS = {"ванн", "bath", "масса", "massa", "прогр", "пилин", "scrub", "peel", "хочу", "have", "what", "about"}
+
 DAY_WORDS = {"сегодня": 0, "today": 0, "завтра": 1, "tomorrow": 1, "послезавтра": 2}
 WEEKDAY_STEMS = ["понед", "вторн", "сред", "четв", "пятн", "субб", "воскр"]
 TIME_RE = re.compile(r"(?:\bв\s*|\bat\s*|\bна\s*)?\b([01]?\d|2[0-3])(?:[:.](\d{2}))?\s*(?:час|ч\b|:00)?", re.IGNORECASE)
@@ -54,6 +70,7 @@ class Parsed:
     escalation: str | None = None
     intent: str | None = None
     space_code: str | None = None
+    tag: str | None = None
     program_id: int | None = None
     day: date | None = None
     at: datetime | None = None
@@ -68,6 +85,10 @@ def _first_match(text: str, patterns: list[tuple[str, str]]) -> str | None:
 
 def _stems(text: str) -> set[str]:
     return {w[:5] for w in re.findall(r"[a-zа-яё]+", text.lower()) if len(w) >= 4}
+
+
+def stems_of(text: str) -> set[str]:
+    return _stems(text)
 
 
 def parse_day(text: str, today: date) -> date | None:
@@ -110,6 +131,14 @@ def match_space(text: str) -> str | None:
     return None
 
 
+def match_tag(text: str) -> str | None:
+    stems = _stems(text) | {w[:5] for w in re.findall(r"[a-zа-яё]+", text.lower()) if len(w) >= 4}
+    for tag, keys in TAG_STEMS.items():
+        if any(s.startswith(k) or k.startswith(s) for s in stems for k in keys):
+            return tag
+    return None
+
+
 def match_program(text: str, programs: list[dict]) -> int | None:
     """Программа, однозначно лучше других совпавшая по словам названия."""
     stems = _stems(text)
@@ -134,6 +163,7 @@ def parse(text: str, programs: list[dict]) -> Parsed:
         intent=_first_match(text, INTENT_PATTERNS),
         space_code=match_space(text),
         program_id=match_program(text, programs),
+        tag=match_tag(text),
         day=parse_day(text, today),
     )
     clock = parse_time(text)
@@ -141,6 +171,24 @@ def parse(text: str, programs: list[dict]) -> Parsed:
         result.day = result.day or today
         result.at = datetime.combine(result.day, datetime.min.time(), tzinfo=config.TZ).replace(hour=clock[0], minute=clock[1])
     return result
+
+
+UNSUBSCRIBE_RE = re.compile(r"^(отписаться|отпишите|стоп|stop|unsubscribe)\b", re.IGNORECASE)
+
+
+def is_unsubscribe(text: str) -> bool:
+    return bool(UNSUBSCRIBE_RE.match(text.strip()))
+
+
+def detect_lang(text: str) -> str | None:
+    """Язык сообщения по алфавиту; None — слишком коротко, чтобы судить."""
+    letters = re.findall(r"[a-zA-Zа-яА-ЯёЁ]", text)
+    if len(letters) < 4:
+        return None
+    latin = len(re.findall(r"[a-zA-Z]", text)) / len(letters)
+    if latin > 0.7:
+        return "en"
+    return "ru" if latin < 0.3 else None
 
 
 def looks_english(text: str) -> bool:

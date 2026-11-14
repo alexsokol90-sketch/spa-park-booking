@@ -1,7 +1,9 @@
-"""Демо-данные каталога и гостей.
+"""Каталог и демо-данные.
 
-ВНИМАНИЕ: названия программ, цены, длительности и мастера — демонстрационные.
-Перед запуском в работу их заменяют на прайс и штат заказчика (таблица programs/masters).
+Пространства, программы, длительности и цены взяты с сайта заказчика spapark86.ru (14.11.2026).
+Состав «Релакса» подобран из массажей и уходов сайта по описанию кейса (локальный массаж и лицо, без прогрева).
+Время работы мастера внутри программы указано по сайту, где оно есть («мастер 30 мин + чайная церемония»),
+иначе — равно длительности. Тайминги уборки, мастера и гости — демонстрационные, их уточняет заказчик.
 Запуск: python -m app.seed [--reset]
 """
 import asyncio
@@ -9,56 +11,105 @@ import random
 import sys
 from datetime import date, datetime, timedelta
 
-from . import config, db
+from . import config, db, kb
 
 SPACES = [
-    ("turkey", "Турция", "Turkey", "Хаммам, пенный массаж, кесе-пилинг", False),
-    ("himalaya", "Гималаи", "Himalayas", "Гималайская соль, тёплые камни, поющие чаши", False),
-    ("india", "Индия", "India", "Аюрведа, масляные массажи, широдхара", False),
-    ("china", "Китай", "China", "Туйна, гуаша, чайная церемония", False),
-    ("japan", "Япония", "Japan", "Офуро, молочная ванна, шиацу", False),
-    ("siberia", "Сибирь", "Siberia", "Парение вениками, кедровая бочка, мёд", False),
+    ("turkey", "Турция", "Turkey", "Хаммам и джакузи — подходит и для большой компании", False),
+    ("himalaya", "Гималаи", "Himalayas", "Жаркая сауна, гималайская соль и джакузи", False),
+    ("india", "Индия", "India", "Восточная зона с хаммамом и мягким паром", False),
+    ("china", "Китай", "China", "Приватная зона с бочкой офуро: травяные и молочные ванны", False),
+    ("japan", "Япония", "Japan", "Купели с травяными сборами и питательными ваннами", False),
+    ("siberia", "Сибирь", "Siberia", "Распаривание в кедровых бочках", False),
     ("relax", "Релакс", "Relax", "Локальный массаж и уход за лицом без прогрева", True),
 ]
 
-# (space, code, name, name_en, duration, cleanup, price, max_guests, tags, description)
+# (space, code, name, name_en, duration, master_min, cleanup, price_1, price_2, max_guests, tags, description, prepay)
 PROGRAMS = [
-    ("turkey", "tr-sultan", "Хаммам-ритуал «Султан»", "Sultan hammam ritual", 120, 30, 6900, 2, "хаммам,пилинг,массаж", "Прогрев на гёбек-таши, кесе-пилинг, пенный массаж, чай"),
-    ("turkey", "tr-foam", "Пенный массаж", "Foam massage", 60, 20, 3900, 1, "хаммам,массаж", "Классический турецкий пенный массаж на тёплом камне"),
-    ("turkey", "tr-couple", "Хаммам для двоих", "Hammam for two", 150, 30, 12900, 2, "хаммам,для двоих,массаж", "Ритуал хаммама для пары с пенным массажем"),
-    ("turkey", "tr-kese", "Кесе-пилинг", "Kese peeling", 60, 20, 3500, 1, "хаммам,пилинг", "Глубокое очищение кожи рукавицей кесе"),
-    ("turkey", "tr-palace", "Ритуал «Дворец»", "Palace ritual", 180, 30, 9900, 2, "хаммам,массаж,обёртывание", "Хаммам, пилинг, пенный массаж и обёртывание"),
-    ("himalaya", "hm-salt", "«Гималайская соль»", "Himalayan salt", 90, 20, 5900, 1, "массаж,соль", "Массаж мешочками с гималайской солью"),
-    ("himalaya", "hm-stones", "Массаж тёплыми соляными камнями", "Warm salt stone massage", 90, 20, 6200, 1, "массаж,камни", "Массаж нагретыми блоками гималайской соли"),
-    ("himalaya", "hm-wrap", "Соляной скраб и обёртывание", "Salt scrub and wrap", 120, 30, 6900, 1, "пилинг,обёртывание", "Скраб на основе гималайской соли и обёртывание"),
-    ("himalaya", "hm-tibet", "Ритуал «Тибет» для двоих", "Tibet ritual for two", 150, 30, 13500, 2, "массаж,для двоих", "Поющие чаши, соляной массаж, травяной чай"),
-    ("himalaya", "hm-bowls", "Поющие чаши", "Singing bowls", 60, 15, 3900, 1, "медитация", "Звуковая релаксация тибетскими чашами"),
-    ("india", "in-abhyanga", "Абхьянга", "Abhyanga", 90, 20, 6500, 1, "массаж,масло,аюрведа", "Аюрведический масляный массаж всего тела"),
-    ("india", "in-shirodhara", "Широдхара", "Shirodhara", 60, 20, 5500, 1, "аюрведа,масло", "Тонкая струя тёплого масла на лоб"),
-    ("india", "in-couple", "«Аюрведа для двоих»", "Ayurveda for two", 150, 30, 13900, 2, "массаж,для двоих,аюрведа", "Синхронная абхьянга для пары"),
-    ("india", "in-pinda", "Пинда-сведа", "Pinda sweda", 120, 30, 7500, 1, "массаж,травы,аюрведа", "Массаж горячими мешочками с травами"),
-    ("india", "in-maharani", "Ритуал «Махарани»", "Maharani ritual", 180, 30, 10900, 1, "массаж,аюрведа,обёртывание", "Абхьянга, широдхара и обёртывание"),
-    ("china", "cn-tuina", "Туйна", "Tui na", 60, 15, 4500, 1, "массаж", "Китайский лечебно-оздоровительный массаж"),
-    ("china", "cn-tea", "Чайная церемония и массаж", "Tea ceremony and massage", 120, 20, 7200, 2, "массаж,чай", "Чайная церемония и расслабляющий массаж"),
-    ("china", "cn-emperor", "«Императорский»", "Emperor's ritual", 150, 30, 9500, 1, "массаж,гуаша", "Туйна, гуаша и массаж лица"),
-    ("china", "cn-guasha", "Гуаша лица и тела", "Gua sha", 60, 15, 4200, 1, "гуаша,лицо", "Скребковый массаж камнем нефрит"),
-    ("china", "cn-yinyang", "Ритуал «Инь-Ян» для двоих", "Yin-Yang ritual for two", 150, 30, 13900, 2, "массаж,для двоих,чай", "Парный массаж и чайная церемония"),
-    ("japan", "jp-ofuro", "Офуро и массаж", "Ofuro and massage", 120, 30, 7500, 1, "ванна,массаж,прогрев", "Японская бочка офуро и массаж"),
-    ("japan", "jp-shiatsu", "Шиацу", "Shiatsu", 60, 15, 4500, 1, "массаж", "Японский точечный массаж"),
-    ("japan", "jp-geisha", "Молочная ванна «Гейша»", "Geisha milk bath", 90, 30, 6900, 1, "ванна,молочная ванна", "Молочная ванна с добавками на выбор"),
-    ("japan", "jp-sakura", "Ритуал «Сакура» для двоих", "Sakura ritual for two", 150, 30, 14500, 2, "ванна,для двоих,массаж", "Офуро, молочная ванна и массаж для пары"),
-    ("japan", "jp-sento", "Сэнто-ритуал", "Sento ritual", 180, 30, 10500, 1, "ванна,массаж,пилинг", "Офуро, пилинг, массаж и молочная ванна"),
-    ("siberia", "sb-steam", "«Сибирский пар»", "Siberian steam", 90, 30, 5900, 2, "парение,баня", "Парение берёзовыми и дубовыми вениками"),
-    ("siberia", "sb-cedar", "Кедровая бочка", "Cedar barrel", 60, 20, 3500, 1, "прогрев,фитобочка", "Фитобочка из кедра с травами"),
-    ("siberia", "sb-honey", "Медовое обёртывание", "Honey wrap", 90, 20, 5200, 1, "обёртывание,мёд", "Прогрев и обёртывание сибирским мёдом"),
-    ("siberia", "sb-taiga", "Ритуал «Тайга» для двоих", "Taiga ritual for two", 180, 30, 15900, 2, "парение,для двоих,массаж", "Парение, кедровая бочка, медовый массаж"),
-    ("siberia", "sb-steam-massage", "Парение и массаж", "Steam and massage", 150, 30, 8900, 1, "парение,массаж", "Парение вениками и классический массаж"),
-    ("relax", "rl-back", "Массаж спины и шеи", "Back and neck massage", 45, 15, 2900, 1, "массаж,локальный", "Локальный массаж без прогрева"),
-    ("relax", "rl-feet", "Массаж стоп", "Foot massage", 45, 15, 2700, 1, "массаж,локальный", "Рефлекторный массаж стоп"),
-    ("relax", "rl-face-massage", "Массаж лица", "Face massage", 45, 15, 3200, 1, "лицо,массаж", "Скульптурирующий массаж лица"),
-    ("relax", "rl-face-care", "Уход за лицом", "Facial care", 60, 15, 3900, 1, "лицо,уход", "Очищение, маска, массаж лица"),
-    ("relax", "rl-head", "Массаж головы и шеи", "Head and neck massage", 30, 15, 1900, 1, "массаж,локальный", "Снятие напряжения, 30 минут"),
+    ("turkey", "tr-rest", "Отдых по-турецки", "Turkish-style rest", 90, 90, 30, 4500, None, 1, "хаммам,джакузи", "Хаммам и джакузи для одного гостя", False),
+    ("turkey", "tr-secrets", "Тайны Востока", "Secrets of the East", 240, 240, 30, None, 20000, 2, "хаммам,для двоих,пилинг,массаж", "Ароматное распаривание, пилинг рукавицей кесе, пенный и расслабляющий массаж, джакузи, белое вино, восточные сладости", False),
+    ("turkey", "tr-hurrem", "Тайна Хюррем", "Hurrem's secret", 240, 240, 30, 25000, None, 6, "хаммам,джакузи,массаж", "Хаммам, дыхательная практика, очищение кожи арабской рукавицей, Таро, массаж головы, джакузи, чайная церемония", True),
+    ("himalaya", "hm-finnish", "Отдых по-фински", "Finnish-style rest", 90, 90, 30, 4500, None, 1, "сауна,джакузи", "Сауна и джакузи для одного гостя", False),
+    ("himalaya", "hm-date", "Идеальное свидание", "The perfect date", 240, 240, 30, None, 20000, 2, "сауна,для двоих,соль,массаж", "Прогрев в сауне, спа-уход с гималайской солью, расслабляющий массаж, джакузи, красное вино", False),
+    ("himalaya", "hm-reboot", "Спа перезагрузка", "Spa reboot", 180, 180, 30, 12000, None, 1, "пар,парение,массаж", "Индивидуальное парение с чередованием влажного и сухого пара и массажем", False),
+    ("himalaya", "hm-rescue", "Отдых во SPAсение", "SPA rescue", 135, 135, 30, None, 12000, 2, "пар,парение,для двоих", "Три захода в парную, лёгкое парение веником, обливание, травяной чай с мёдом, джакузи и сауна", False),
+    ("himalaya", "hm-steam", "Терапия паром", "Steam therapy", 120, 120, 30, 9000, None, 1, "пар,парение", "Три захода, парение берёзовым и дубовым веником, обливание, травяной чай с мёдом", False),
+    ("himalaya", "hm-herbs", "Магия трав", "Magic of herbs", 240, 240, 30, 17800, None, 6, "сауна,пилинг,травы,джакузи", "Сауна, свой скраб, бесконтактный прогрев травяным настоем, солевой скраб, джакузи, чайная церемония", True),
+    ("india", "in-wind", "Шепот восточного ветра", "Whisper of the eastern wind", 120, 120, 30, 5500, 8500, 2, "хаммам,массаж", "Прогрев в хаммаме и массаж", False),
+    ("india", "in-marrakesh", "Дыхание Марракеша", "Breath of Marrakesh", 160, 160, 30, 7500, 10500, 2, "хаммам,обёртывание,массаж", "Прогрев в хаммаме, обёртывание и массаж", False),
+    ("india", "in-oriental", "SPA по-восточному", "Oriental SPA", 160, 160, 30, 6500, 9500, 2, "хаммам,пилинг,массаж", "Прогрев в хаммаме, пилинг кесе и массаж", False),
+    ("india", "in-nights", "Тысяча и одна ночь", "One thousand and one nights", 160, 160, 30, 8000, 11000, 2, "хаммам,пилинг,обёртывание,массаж", "Прогрев в хаммаме, пилинг кесе, обёртывание и массаж", False),
+    ("india", "in-indonesia", "Наследие Индонезии", "Heritage of Indonesia", 240, 240, 30, None, 20000, 2, "хаммам,для двоих,пилинг,массаж", "Ароматическая парная процедура, пилинг кесе, расслабляющий массаж, игристое брют, фруктовая тарелка", False),
+    ("china", "cn-water", "Гармония воды", "Harmony of water", 160, 160, 30, 9000, 12000, 2, "ванна,молочная ванна,обёртывание,массаж", "Молочная ванна, обёртывание, массаж", False),
+    ("china", "cn-cleopatra", "Шепот Клеопатры", "Cleopatra's whisper", 170, 170, 30, 10000, 15000, 2, "ванна,молочная ванна,пилинг,обёртывание,массаж", "Молочная ванна, пилинг, обёртывание, массаж", False),
+    ("china", "cn-silence", "Ванна Тишины", "Bath of silence", 140, 140, 30, 9000, 12000, 2, "ванна,пилинг,массаж", "Ванна с хвойным экстрактом, пилинг, массаж", False),
+    ("china", "cn-aphrodite", "Объятия Афродиты", "Aphrodite's embrace", 120, 120, 30, 7000, 10000, 2, "ванна,массаж", "Ванна с английской солью и пеной, массаж", False),
+    ("china", "cn-symphony", "Китайская симфония", "Chinese symphony", 240, 240, 30, None, 20000, 2, "ванна,для двоих,пилинг,массаж", "Ароматная ванна, пилинг, игристое брют, фруктовая тарелка, чайная церемония, массаж тёплыми камнями и травяными мешочками", False),
+    ("japan", "jp-sakura", "Прикосновение Сакуры", "Touch of sakura", 120, 120, 30, 6500, 9500, 2, "ванна,массаж", "Ванна с английской солью и пеной, массаж", False),
+    ("japan", "jp-pine", "Хвойная нега", "Pine bliss", 140, 140, 30, 9000, 12000, 2, "ванна,пилинг,массаж", "Ванна с хвойным экстрактом, пилинг, массаж", False),
+    ("japan", "jp-sunrise", "Восход солнца", "Sunrise", 170, 170, 30, 10000, 13000, 2, "ванна,молочная ванна,пилинг,обёртывание,массаж", "Молочная ванна, пилинг, обёртывание, массаж", False),
+    ("japan", "jp-cleopatra", "Утро Клеопатры", "Cleopatra's morning", 160, 160, 30, 9000, 12000, 2, "ванна,молочная ванна,обёртывание,массаж", "Молочная ванна, обёртывание, массаж", False),
+    ("japan", "jp-geisha", "Секрет Гейши", "Geisha's secret", 240, 240, 30, None, 18000, 2, "ванна,для двоих,обёртывание,массаж", "Распаривание в ароматной ванне, ароматическая маска для тела, расслабляющий массаж, игристое брют", False),
+    ("siberia", "sb-taiga", "Таёжный дух", "Taiga spirit", 60, 60, 20, 3500, None, 1, "кедровая бочка", "Прогрев в кедровой бочке", False),
+    ("siberia", "sb-warmth", "Терапия теплом", "Warmth therapy", 150, 150, 30, 7000, 10000, 2, "кедровая бочка,пилинг,массаж", "Прогрев в кедровой бочке, пилинг, массаж", False),
+    ("siberia", "sb-ritual", "Сибирский ритуал красоты", "Siberian beauty ritual", 170, 170, 30, 9000, 12000, 2, "кедровая бочка,пилинг,обёртывание,массаж", "Прогрев в кедровой бочке, пилинг, обёртывание, массаж", False),
+    ("siberia", "sb-wood", "Энергия дерева", "Energy of wood", 150, 150, 30, 7000, 10000, 2, "кедровая бочка,обёртывание,массаж", "Прогрев в кедровой бочке, обёртывание, массаж", False),
+    ("siberia", "sb-cedar", "Тепло Кедра", "Cedar warmth", 120, 120, 30, 6000, 9000, 2, "кедровая бочка,массаж", "Прогрев в кедровой бочке, массаж", False),
+    ("siberia", "sb-love", "Влюбиться в Сибирь", "Fall in love with Siberia", 240, 240, 30, None, 18000, 2, "кедровая бочка,для двоих,массаж", "Распаривание в кедровых бочках, расслабляющий массаж, сет настоек, ассорти из благородных рыб", False),
+    ("relax", "rl-back", "Массаж спины тёплыми камнями", "Warm stone back massage", 90, 60, 15, 5300, None, 1, "массаж,локальный", "Мастер 60 минут, затем чайная церемония", False),
+    ("relax", "rl-feet", "Массаж ног", "Foot massage", 60, 30, 15, 2900, None, 1, "массаж,локальный", "Мастер 30 минут, затем чайная церемония", False),
+    ("relax", "rl-head", "Массаж головы", "Head massage", 60, 30, 15, 2900, None, 1, "массаж,локальный", "Мастер 30 минут, затем чайная церемония", False),
+    ("relax", "rl-ice", "Массаж лица «Ледяными камнями»", "Ice stone facial massage", 60, 60, 15, 5000, None, 1, "лицо,массаж", "Массаж лица ледяными камнями", False),
+    ("relax", "rl-mask", "Альгинатная маска для лица", "Alginate face mask", 60, 10, 15, 3000, None, 1, "лицо,уход", "Мастер 10 минут, затем отдых и чайная церемония", False),
 ]
+
+SPACE_DESCR_EN = {
+    "turkey": "Hammam and jacuzzi — suitable for a large group as well",
+    "himalaya": "Hot sauna, Himalayan salt and jacuzzi",
+    "india": "An oriental zone with a hammam and soft steam",
+    "china": "A private zone with an ofuro tub: herbal and milk baths",
+    "japan": "Hot tubs with herbal blends and nourishing baths",
+    "siberia": "Steaming in cedar barrels",
+    "relax": "Local massage and facial care without heat",
+}
+
+# Описания на английском: термины по глоссарию (hammam, body wrap, milk bath, steaming with brooms).
+PROGRAM_DESCR_EN = {
+    "tr-rest": "Hammam and jacuzzi for one guest",
+    "tr-secrets": "Aromatic steaming, kese peeling mitt scrub, foam and relaxing massage, jacuzzi, white wine, oriental sweets",
+    "tr-hurrem": "Hammam, breathing practice, Arabic mitt skin cleansing, tarot reading, head massage, jacuzzi, tea ceremony",
+    "hm-finnish": "Sauna and jacuzzi for one guest",
+    "hm-date": "Sauna warm-up, Himalayan salt spa treatment, relaxing massage, jacuzzi, red wine",
+    "hm-reboot": "Individual steaming session alternating wet and dry steam, with massage",
+    "hm-rescue": "Three steam sessions, light steaming with brooms, contrast pouring, herbal tea with honey, jacuzzi and sauna",
+    "hm-steam": "Three steam sessions, steaming with birch and oak brooms, contrast pouring, herbal tea with honey",
+    "hm-herbs": "Sauna, your own scrub, contactless herbal steam warming, salt body scrub, jacuzzi, tea ceremony",
+    "in-wind": "Hammam warm-up and massage",
+    "in-marrakesh": "Hammam warm-up, body wrap and massage",
+    "in-oriental": "Hammam warm-up, kese peeling and massage",
+    "in-nights": "Hammam warm-up, kese peeling, body wrap and massage",
+    "in-indonesia": "Aromatic steam procedure, kese peeling, relaxing massage, sparkling brut, fruit plate",
+    "cn-water": "Milk bath, body wrap, massage",
+    "cn-cleopatra": "Milk bath, body scrub, body wrap, massage",
+    "cn-silence": "Bath with pine extract, body scrub, massage",
+    "cn-aphrodite": "Bath with Epsom salt and foam, massage",
+    "cn-symphony": "Aromatic bath, body scrub, sparkling brut, fruit plate, tea ceremony, warm stone and herbal pouch massage",
+    "jp-sakura": "Bath with Epsom salt and foam, massage",
+    "jp-pine": "Bath with pine extract, body scrub, massage",
+    "jp-sunrise": "Milk bath, body scrub, body wrap, massage",
+    "jp-cleopatra": "Milk bath, body wrap, massage",
+    "jp-geisha": "Steaming in an aromatic bath, aromatic body mask, relaxing massage, sparkling brut",
+    "sb-taiga": "Warming up in a cedar barrel",
+    "sb-warmth": "Cedar barrel warm-up, body scrub, massage",
+    "sb-ritual": "Cedar barrel warm-up, body scrub, body wrap, massage",
+    "sb-wood": "Cedar barrel warm-up, body wrap, massage",
+    "sb-cedar": "Cedar barrel warm-up, massage",
+    "sb-love": "Steaming in cedar barrels, relaxing massage, a set of tinctures, assorted fine fish",
+    "rl-back": "60 minutes with the therapist, followed by a tea ceremony",
+    "rl-feet": "30 minutes with the therapist, followed by a tea ceremony",
+    "rl-head": "30 minutes with the therapist, followed by a tea ceremony",
+    "rl-ice": "Facial massage with ice stones",
+    "rl-mask": "10 minutes with the therapist, then rest and a tea ceremony",
+}
 
 MASTERS = [
     ("Анна", "массаж, аюрведа"),
@@ -105,17 +156,22 @@ def _local(day: date, hour: int, minute: int = 0) -> datetime:
 
 
 async def _insert_catalog(conn) -> None:
+    for kind, text in kb.CONSENT_TEXTS.items():
+        await conn.execute(
+            "INSERT INTO consent_texts (version, kind, text) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
+            (config.CONSENT_VERSION, kind, text),
+        )
     for sort, (code, name, name_en, descr, relax) in enumerate(SPACES):
         await conn.execute(
-            "INSERT INTO spaces (code, name, name_en, description, is_relax, sort) VALUES (%s,%s,%s,%s,%s,%s)",
-            (code, name, name_en, descr, relax, sort),
+            "INSERT INTO spaces (code, name, name_en, description, description_en, is_relax, sort) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+            (code, name, name_en, descr, SPACE_DESCR_EN[code], relax, sort),
         )
-    for space, code, name, name_en, dur, clean, price, guests, tags, descr in PROGRAMS:
+    for space, code, name, name_en, dur, master, clean, price, couple, guests, tags, descr, prepay in PROGRAMS:
         await conn.execute(
-            """INSERT INTO programs (code, space_id, name, name_en, description, duration_min,
-                   cleanup_min, price, max_guests, tags)
-               SELECT %s, id, %s, %s, %s, %s, %s, %s, %s, %s FROM spaces WHERE code = %s""",
-            (code, name, name_en, descr, dur, clean, price, guests, tags, space),
+            """INSERT INTO programs (code, space_id, name, name_en, description, description_en, duration_min,
+                   master_min, cleanup_min, price, price_couple, max_guests, tags, prepay)
+               SELECT %s, id, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s FROM spaces WHERE code = %s""",
+            (code, name, name_en, descr, PROGRAM_DESCR_EN[code], dur, master, clean, price, couple, guests, tags, prepay, space),
         )
     for name, skills in MASTERS:
         await conn.execute("INSERT INTO masters (name, skills) VALUES (%s, %s)", (name, skills))
@@ -152,12 +208,15 @@ async def _insert_guests(conn) -> None:
 
 async def _book(conn, guest_id: int, prog: dict, master_id: int, start: datetime, status: str, visit: str = "none") -> None:
     end = start + timedelta(minutes=prog["duration_min"])
+    master_until = start + timedelta(minutes=prog["master_min"])
     busy = end + timedelta(minutes=prog["cleanup_min"])
+    guests = 1 if prog["price"] is not None else 2
+    price = prog["price"] if guests == 1 else prog["price_couple"]
     await conn.execute(
-        """INSERT INTO bookings (guest_id, program_id, space_id, master_id, starts_at, ends_at, busy_until,
-               status, source, visit_status, confirmed_at)
-           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'admin',%s, now())""",
-        (guest_id, prog["id"], prog["space_id"], master_id, start, end, busy, status, visit),
+        """INSERT INTO bookings (guest_id, program_id, space_id, master_id, starts_at, ends_at, master_until,
+               busy_until, status, source, visit_status, confirmed_at, guests_count, price_total)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'admin',%s, now(), %s, %s)""",
+        (guest_id, prog["id"], prog["space_id"], master_id, start, end, master_until, busy, status, visit, guests, price),
     )
 
 
@@ -172,8 +231,8 @@ async def _insert_bookings(conn) -> None:
         day = today - timedelta(days=30 * months_ago + rnd.randint(0, 10))
         code = rnd.choice(list(progs))
         await _book(conn, gid, progs[code], (i % 6) + 1, _local(day, 12 + i % 8), "completed")
-    plan_today = [("tr-sultan", 0, 14), ("sb-steam", 1, 16), ("rl-back", 2, 12), ("jp-geisha", 3, 18), ("in-abhyanga", 4, 19)]
-    plan_tomorrow = [("cn-tea", 5, 13), ("hm-salt", 6, 15), ("jp-ofuro", 7, 17), ("tr-foam", 8, 20)]
+    plan_today = [("in-oriental", 0, 14), ("sb-cedar", 1, 16), ("rl-back", 2, 12), ("jp-sunrise", 3, 18), ("hm-steam", 4, 19)]
+    plan_tomorrow = [("cn-water", 5, 13), ("hm-reboot", 6, 15), ("jp-sakura", 7, 17), ("in-wind", 8, 20)]
     for n, (code, gi, hour) in enumerate(plan_today):
         await _book(conn, guests[gi], progs[code], n % 6 + 1, _local(today, hour), "confirmed", "confirmed")
     tomorrow = today + timedelta(days=1)
@@ -184,14 +243,12 @@ async def _insert_bookings(conn) -> None:
 async def seed(reset: bool = False) -> None:
     await db.open_pool()
     try:
-        await db.apply_schema()
+        if not reset:
+            await db.apply_schema()
         async with db.tx() as conn:
             if reset:
-                await conn.execute(
-                    """TRUNCATE outbox, campaigns, escalations, messages, sessions, booking_preorders,
-                       program_preorders, preorder_items, bookings, consents, guests, programs, masters,
-                       spaces, job_runs RESTART IDENTITY CASCADE"""
-                )
+                await conn.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
+                await conn.execute((config.ROOT / "db" / "schema.sql").read_text(encoding="utf-8"))
             exists = await db.fetchone(conn, "SELECT count(*) AS n FROM spaces")
             if exists["n"]:
                 print("Каталог уже заполнен, пропускаю (используйте --reset)")

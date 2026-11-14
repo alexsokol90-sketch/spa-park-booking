@@ -9,6 +9,7 @@
 import asyncio
 import json
 import random
+import secrets
 import sys
 from datetime import date, datetime, timedelta
 
@@ -373,11 +374,16 @@ SOURCES = [("reception", 30), ("site", 22), ("social", 18), ("qr", 10), ("ads", 
 CHANNELS = [("max", 38), ("tg", 32), ("vk", 14), ("web", 10), ("reception", 6)]
 AGE_WEIGHTS = [(18, 29, 24), (30, 39, 34), (40, 49, 22), (50, 59, 12), (60, 69, 6), (70, 79, 2)]
 
+# Демо-сотрудники. PIN-коды не хранятся в коде: генерируются при заполнении и выводятся в консоль один раз.
 EMPLOYEES = [
-    ("Ирина Соколовская", "manager", None, "manager", "1111"),
-    ("Полина", "admin", None, "admin", "2222"),
-    ("Гульнара", "cleaning", None, "cleaning", "3333"),
+    ("Ирина Соколовская", "manager", None, "manager"),
+    ("Полина", "admin", None, "admin"),
+    ("Гульнара", "cleaning", None, "cleaning"),
 ]
+
+
+def _demo_pin() -> str:
+    return f"{secrets.randbelow(10**6):06d}"
 
 AUTOMATIONS = [
     ("Подарок ко дню рождения", "birthday_before", 7, "bonus", 500, 14,
@@ -442,9 +448,9 @@ async def _insert_crm(conn) -> None:
     await _insert_employees(conn)
     for name, trigger, days, action, amount, bdays, message in AUTOMATIONS:
         await conn.execute(
-            """INSERT INTO automations (name, trigger, days, action, bonus_amount, bonus_days, message)
-               VALUES (%s,%s,%s,%s,%s,%s,%s)""",
-            (name, trigger, days, action, amount, bdays, message),
+            """INSERT INTO automations (name, trigger, days, action, actions, bonus_amount, bonus_days, message)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
+            (name, trigger, days, action, json.dumps([action, "message"] if action == "bonus" else [action]), amount, bdays, message),
         )
 
 
@@ -528,17 +534,24 @@ async def _insert_certificates(conn, rnd: random.Random, today: date) -> None:
 async def _insert_employees(conn) -> None:
     from .staff import hash_pin
 
+    issued = []
     for master in await db.fetch(conn, "SELECT id, name FROM masters ORDER BY id"):
-        login = f"master{master['id']}"
+        login, pin = f"master{master['id']}", _demo_pin()
         await conn.execute(
             "INSERT INTO employees (name, position, master_id, login, pin_hash) VALUES (%s, 'master', %s, %s, %s)",
-            (master["name"], master["id"], login, hash_pin("4444")),
+            (master["name"], master["id"], login, hash_pin(pin)),
         )
-    for name, position, master_id, login, pin in EMPLOYEES:
+        issued.append((login, pin))
+    for name, position, master_id, login in EMPLOYEES:
+        pin = _demo_pin()
         await conn.execute(
             "INSERT INTO employees (name, position, master_id, login, pin_hash) VALUES (%s, %s, %s, %s, %s)",
             (name, position, master_id, login, hash_pin(pin)),
         )
+        issued.append((login, pin))
+    print("Логины и PIN-коды демо-сотрудников (сохраните, повторно не показываются):")
+    for login, pin in issued:
+        print(f"  {login}: {pin}")
 
 
 if __name__ == "__main__":

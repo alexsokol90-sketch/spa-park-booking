@@ -249,52 +249,120 @@
   }
   loaders.campaigns = initCampaigns;
 
-  // ---------- автоматизации ----------
+  // ---------- автоматизации (окно как в SAMOSALE: Когда · Если · Что сделать) ----------
+  const EVENTS = {
+    birthday_before: { pre: "За", post: "До", label: "Дня рождения клиента" },
+    after_visit: { pre: "Через", post: "После", label: "Последнего визита" },
+    inactive: { pre: "Через", post: "После", label: "Последнего визита, если гость не вернулся" },
+    registration: { pre: "Через", post: "После", label: "Регистрации" },
+  };
+  const DO = [["bonus", "Начислить бонусы"], ["segment_add", "Добавить в сегмент"], ["segment_remove", "Удалить из сегмента"],
+    ["message", "Отправить сообщение"], ["chain", "Запустить цепочку сообщений"], ["staff_message", "Отправить сообщение сотруднику"]];
+
+  function whenText(a) {
+    const ev = EVENTS[a.trigger];
+    return ev.pre + " " + a.days + " дн. " + ev.post.toLowerCase() + " " + ev.label.toLowerCase();
+  }
+
   async function loadAutos() {
     await meta();
     const data = await api("api/admin/automations");
     const list = document.getElementById("autoList");
     list.innerHTML = "";
-    data.items.forEach((a) => list.append(autoCard(a)));
+    data.items.forEach((a) => {
+      const acts = (a.actions && a.actions.length ? a.actions : [a.action]).map((k) => (DO.find((d) => d[0] === k) || [k, k])[1]);
+      list.append(h("div", { class: "card" + (a.active ? "" : " inactive") }, [
+        h("div", { class: "head" }, [h("div", { class: "reason", text: a.name }), h("span", { class: "pill " + (a.active ? "accepted" : ""), text: a.active ? "включена" : "выключена" })]),
+        h("p", { class: "muted", text: whenText(a) }),
+        h("p", { text: "Что сделать: " + acts.join(", ") + (a.bonus_amount && acts.includes("Начислить бонусы") ? " · " + a.bonus_amount + " бонусов на " + a.bonus_days + " дн." : "") }),
+        h("div", { class: "row-actions" }, [h("button", { type: "button", text: "Изменить", onclick: () => editAuto(a) }), h("span", { class: "muted", text: "срабатываний: " + a.runs })]),
+      ]));
+    });
   }
-  function autoCard(a) {
-    const name = h("input", { class: "title", value: a.name, placeholder: "Название" });
-    const trigger = h("select", {}, Object.entries(META.triggers).map(([k, t]) => h("option", { value: k, text: t, selected: k === a.trigger })));
-    const days = h("input", { type: "number", value: a.days, min: 0, style: "width:80px" });
-    const action = h("select", {}, Object.entries(META.actions).map(([k, t]) => h("option", { value: k, text: t, selected: k === a.action })));
-    const amount = h("input", { type: "number", value: a.bonus_amount, style: "width:90px", title: "Бонусов" });
-    const bdays = h("input", { type: "number", value: a.bonus_days, style: "width:80px", title: "Срок, дней" });
-    const segment = h("input", { value: a.segment, placeholder: "сегмент" });
-    const message = h("textarea", { rows: 3, style: "width:100%" });
-    message.value = a.message;
+
+  function toggle(label, on, extra) {
+    const input = h("input", { type: "checkbox" });
+    input.checked = on;
+    const extraBox = h("div", { class: "do-extra" }, extra || []);
+    const sync = () => { extraBox.hidden = !input.checked; };
+    input.addEventListener("change", sync);
+    sync();
+    return { input, row: h("div", { class: "do-row" }, [h("label", { class: "switch" }, [input, h("span", { class: "slider" })]), h("span", { text: label }), extraBox]) };
+  }
+
+  function editAuto(a) {
+    const modal = document.getElementById("modal");
+    const box = document.getElementById("modalBox");
+    box.classList.add("wide-modal");
+    const name = h("input", { value: a.name || "", class: "full" });
+    const pre = h("span", { class: "fixed" });
+    const post = h("span", { class: "fixed" });
+    const days = h("input", { type: "number", value: a.days ?? 7, min: 0, max: 365, style: "width:90px" });
+    const event = h("select", {}, Object.entries(EVENTS).map(([k, e]) => h("option", { value: k, text: e.label, selected: k === a.trigger })));
+    const syncWhen = () => { pre.textContent = EVENTS[event.value].pre; post.textContent = EVENTS[event.value].post; };
+    event.addEventListener("change", syncWhen);
+    syncWhen();
+    const match = h("select", {}, [h("option", { value: "all", text: "все условия", selected: a.match !== "any" }), h("option", { value: "any", text: "любое условие", selected: a.match === "any" })]);
     const filters = h("div", { class: "filters" });
     (a.filters || []).forEach((f) => filterRow(filters, f));
+    const matched = h("span", { class: "muted" });
+    const apply = async () => {
+      const res = await api("api/admin/clients/search", { method: "POST", body: { filters: filtersOf(filters), match: match.value } });
+      matched.textContent = "Подходит клиентов: " + res.items.length + (res.items.length === 300 ? "+" : "");
+    };
+    const acts = new Set(a.actions && a.actions.length ? a.actions : [a.action].filter(Boolean));
+    const amount = h("input", { type: "number", value: a.bonus_amount || 500, style: "width:100px" });
+    const bdays = h("input", { type: "number", value: a.bonus_days || 14, style: "width:80px" });
+    const segment = h("input", { value: a.segment || "", placeholder: "название сегмента" });
+    const segment2 = h("input", { value: a.segment || "", placeholder: "название сегмента" });
+    const message = h("textarea", { rows: 3 });
+    message.value = a.message || "";
+    const staffMsg = h("textarea", { rows: 2, placeholder: "Например: позвонить гостю {name}, предложить программу" });
+    staffMsg.value = a.staff_message || "";
+    const t = {
+      bonus: toggle("Начислить бонусы", acts.has("bonus"), [amount, " бонусов на ", bdays, " дней"]),
+      segment_add: toggle("Добавить в сегмент", acts.has("segment_add"), [segment]),
+      segment_remove: toggle("Удалить из сегмента", acts.has("segment_remove"), [segment2]),
+      message: toggle("Отправить сообщение", acts.has("message"), [message, h("div", { class: "muted", text: "Переменные: {name}, {bonuses}, {referral_link}. Только гостям с согласием на рекламу." })]),
+      chain: toggle("Запустить цепочку сообщений (скоро)", false, []),
+      staff_message: toggle("Отправить сообщение сотруднику", acts.has("staff_message"), [staffMsg]),
+    };
+    t.chain.input.disabled = true;
     const active = h("input", { type: "checkbox" });
-    active.checked = a.active;
+    active.checked = a.active !== false;
     const save = async () => {
-      const body = { name: name.value, trigger: trigger.value, days: Number(days.value), action: action.value, bonus_amount: Number(amount.value),
-        bonus_days: Number(bdays.value), segment: segment.value, message: message.value, filters: filtersOf(filters), active: active.checked };
+      const body = {
+        name: name.value, trigger: event.value, days: Number(days.value), match: match.value, filters: filtersOf(filters),
+        actions: Object.entries(t).filter(([k, v]) => k !== "chain" && v.input.checked).map(([k]) => k),
+        bonus_amount: Number(amount.value), bonus_days: Number(bdays.value), segment: (t.segment_remove.input.checked && !t.segment_add.input.checked ? segment2 : segment).value,
+        message: message.value, staff_message: staffMsg.value, active: active.checked,
+      };
       try {
         if (a.id) await api("api/admin/automations/" + a.id, { method: "PUT", body });
         else await api("api/admin/automations", { method: "POST", body });
-        toast("Автоматизация сохранена");
-        loadAutos();
+        modal.hidden = true; box.classList.remove("wide-modal"); toast("Автоматизация сохранена"); loadAutos();
       } catch (err) { toast("Не сохранено: " + err.message, "escalation"); }
     };
-    return h("div", { class: "card tpl" + (a.active ? "" : " inactive") }, [
-      name,
-      h("div", { class: "meta" }, ["Когда:", trigger, "N =", days]),
-      h("div", { class: "muted", text: "Условия (необязательно):" }), filters,
-      h("button", { type: "button", text: "+ условие", onclick: () => filterRow(filters) }),
-      h("div", { class: "meta", style: "margin-top:8px" }, ["Что сделать:", action, "бонусов", amount, "срок, дн.", bdays, segment]),
-      h("div", { class: "muted", text: "Сообщение гостю (переменные {name}, {bonuses}, {referral_link}):" }), message,
-      h("div", { class: "row-actions" }, [h("label", { class: "check" }, [active, "включена"]), h("button", { type: "button", class: "primary", text: "Сохранить", onclick: save }),
-        a.id ? h("span", { class: "muted", text: "срабатываний: " + a.runs }) : ""]),
-    ]);
+    box.innerHTML = "";
+    box.append(
+      h("div", { class: "modal-head" }, [h("h3", { text: a.name || "Новая автоматизация" }), h("button", { type: "button", class: "close", text: "✕", onclick: () => { modal.hidden = true; box.classList.remove("wide-modal"); } })]),
+      h("div", { class: "form-grid" }, [
+        h("b", { text: "Название:" }), name,
+        h("b", { text: "Когда:" }), h("div", { class: "inline" }, [pre, days, h("span", { class: "fixed", text: "дней" }), post, event]),
+        h("b", { text: "Если:" }), h("div", { class: "if-box" }, [
+          h("div", { class: "inline" }, [match, h("button", { type: "button", text: "Применить", onclick: apply }), h("button", { type: "button", text: "Сбросить", onclick: () => { filters.innerHTML = ""; matched.textContent = ""; } }), matched]),
+          filters, h("button", { type: "button", text: "добавить условие", onclick: () => filterRow(filters) }),
+        ]),
+        h("b", { text: "Что сделать:" }), h("div", {}, Object.values(t).map((x) => x.row)),
+        h("b", { text: "" }), h("label", { class: "check" }, [active, "автоматизация включена"]),
+      ]),
+      h("div", { class: "row-actions" }, [h("button", { type: "button", class: "primary", text: "Сохранить", onclick: save })])
+    );
+    modal.hidden = false;
   }
   document.getElementById("autoNew").onclick = async () => {
     await meta();
-    document.getElementById("autoList").prepend(autoCard({ id: null, name: "", trigger: "birthday_before", days: 7, action: "bonus", bonus_amount: 500, bonus_days: 14, segment: "", message: "{name}, дарим вам {bonuses} бонусов!", filters: [], active: true }));
+    editAuto({ id: null, name: "500 бонусов на день рождения на 14 дней", trigger: "birthday_before", days: 7, actions: ["bonus", "message"], bonus_amount: 500, bonus_days: 14, segment: "", message: "{name}, скоро ваш день рождения! Дарим 500 бонусов на 14 дней.", filters: [], match: "all", active: true });
   };
   document.getElementById("autoRun").onclick = async () => {
     const r = await api("api/admin/automations/run", { method: "POST" });

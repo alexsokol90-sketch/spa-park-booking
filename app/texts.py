@@ -61,6 +61,7 @@ T = {
     "cert_inactive": {"ru": "Сертификат {number}: {status}. Если это ошибка — я передам вопрос администратору.", "en": "Certificate {number}: {status}. If this is a mistake, I'll pass it to the administrator."},
     "cert_missing": {"ru": "Сертификат с таким номером не нашёлся. Проверьте номер или нажмите «Администратор».", "en": "No certificate with this number. Please check it or tap Administrator."},
     "ref_ok": {"ru": "Вас пригласил друг — добро пожаловать! После первого визита он получит бонусы, а вы — нашу заботу 🙂", "en": "A friend invited you — welcome! After your first visit they'll get bonus points."},
+    "too_fast": {"ru": "Вы пишете очень часто — давайте сделаем паузу на минуту, и я снова на связи.", "en": "You're sending messages very fast — let's pause for a minute."},
     "max_voice_note": {
         "ru": "Пишите своими словами или выбирайте кнопки. Голосовые сообщения MAX пока не передаёт ботам — их я, к сожалению, не услышу.",
         "en": "Type in your own words or use the buttons. MAX doesn't pass voice messages to bots yet, so I can't hear them.",

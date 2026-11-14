@@ -115,7 +115,12 @@ def test_employee_pin_login_and_roles():
     assert "master" not in staff.FULL_ACCESS
 
     async def scenario():
-        return await staff.employee_login("cleaning", "3333"), await staff.employee_login("cleaning", "0000")
+        login = "test" + uuid.uuid4().hex[:6]
+        emp = await staff.save_employee({"name": "Тест", "position": "cleaning", "login": login, "pin": "8642", "active": True})
+        try:
+            return await staff.employee_login(login, "8642"), await staff.employee_login(login, "0000")
+        finally:
+            await db.query("DELETE FROM employees WHERE id = %s RETURNING id", (emp["id"],))
 
     ok, bad = asyncio.run(_with_pool(scenario))
     assert ok["role"] == "cleaning" and bad is None

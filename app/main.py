@@ -31,6 +31,7 @@ from . import (
     notify,
     privacy,
     scheduler,
+    security,
     speech,
     staff,
     tg_bot,
@@ -41,7 +42,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s
 # httpx пишет в журнал полные URL запросов — в адресе Bot API есть токен, поэтому только предупреждения.
 logging.getLogger("httpx").setLevel(logging.WARNING)
 WEB = config.ROOT / "web"
-security = HTTPBasic(auto_error=False)
+basic_auth = HTTPBasic(auto_error=False)
 
 
 @asynccontextmanager
@@ -55,16 +56,29 @@ async def lifespan(_app: FastAPI):
     await db.close_pool()
 
 
-app = FastAPI(title=config.PROJECT_NAME, lifespan=lifespan)
+# Документация API (/docs, /openapi.json) в бою отключена: карта методов не нужна посторонним.
+app = FastAPI(title=config.PROJECT_NAME, lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    for name, value in security.security_headers(request.url.path).items():
+        response.headers.setdefault(name, value)
+    return response
 
 
 OWNER = {"name": "Владелец", "role": "owner"}
 
 
-async def require_admin(creds: Annotated[HTTPBasicCredentials | None, Depends(security)]) -> dict:
-    """Вход в кабинет: владелец (из .env) или сотрудник по логину и PIN-коду."""
+async def require_admin(request: Request, creds: Annotated[HTTPBasicCredentials | None, Depends(basic_auth)]) -> dict:
+    """Вход в кабинет: владелец (пароль из .env) или сотрудник по логину и PIN-коду (хеш scrypt).
+    Пароль не задан — вход закрыт; после 10 неверных попыток за 15 минут IP блокируется."""
     if not config.ADMIN_PASSWORD:
-        return OWNER
+        raise HTTPException(503, "Пароль кабинета не настроен")
+    ip = security.client_ip(request)
+    if security.LOGIN_FAILS.blocked(ip):
+        raise HTTPException(429, "Слишком много неудачных попыток входа. Подождите 15 минут.")
     if creds is not None and secrets.compare_digest(creds.username, config.ADMIN_USER) and secrets.compare_digest(
         creds.password, config.ADMIN_PASSWORD
     ):
@@ -73,6 +87,7 @@ async def require_admin(creds: Annotated[HTTPBasicCredentials | None, Depends(se
         user = await staff.employee_login(creds.username, creds.password)
         if user:
             return user
+        security.LOGIN_FAILS.allow(ip)
     raise HTTPException(status_code=401, headers={"WWW-Authenticate": "Basic"})
 
 
@@ -90,16 +105,35 @@ FULL = [Depends(require_full)]
 # ---------- веб-эмулятор чата гостя (тот же движок, что и в MAX) ----------
 
 class ChatIn(BaseModel):
-    uid: int = Field(lt=0, description="Отрицательный id — гость веб-эмулятора")
+    uid: int = Field(lt=0, description="Идентификатор гостя веб-чата (выдаёт сервер)")
+    sig: str = Field(max_length=64, description="Подпись идентификатора")
     name: str | None = Field(default=None, max_length=60)
     text: str | None = Field(default=None, max_length=2000)
     payload: str | None = Field(default=None, max_length=1024)
     phone: str | None = Field(default=None, max_length=30)
 
 
+def _web_guard(request: Request, uid: int, sig: str, limiter: security.RateLimiter = security.CHAT_IP) -> None:
+    if not security.verify(uid, sig):
+        raise HTTPException(403, "Сессия чата недействительна — обновите страницу")
+    if not limiter.allow(security.client_ip(request)):
+        raise HTTPException(429, "Слишком много сообщений. Подождите минуту.")
+
+
+@app.post("/api/chat/session")
+async def chat_session(request: Request):
+    """Новая сессия веб-чата: сервер выдаёт идентификатор гостя и подпись."""
+    if not security.CHAT_IP.allow(security.client_ip(request)):
+        raise HTTPException(429, "Слишком много запросов. Подождите минуту.")
+    uid, sig = security.new_web_session()
+    return {"uid": uid, "sig": sig}
+
+
 @app.post("/api/chat")
-async def chat(inp: ChatIn):
+async def chat(inp: ChatIn, request: Request):
+    _web_guard(request, inp.uid, inp.sig)
     guest = await guests.by_channel(inp.uid, inp.name)
+    inp.text = (inp.text or "").strip() or None
     if not (inp.text or inp.payload or inp.phone):
         outs = await dialog.handle(guest, payload="menu")
     else:
@@ -109,13 +143,15 @@ async def chat(inp: ChatIn):
 
 class ConsentIn(BaseModel):
     uid: int = Field(lt=0)
+    sig: str = Field(max_length=64)
     pd: bool
     ads: bool = False
 
 
 @app.post("/api/chat/consent")
-async def chat_consent(inp: ConsentIn):
+async def chat_consent(inp: ConsentIn, request: Request):
     """Согласия, отмеченные гостем перед началом чата на сайте (канал web, текущая версия текстов)."""
+    _web_guard(request, inp.uid, inp.sig)
     if not inp.pd:
         raise HTTPException(400, "Без согласия на обработку персональных данных чат недоступен")
     guest = await guests.by_channel(inp.uid)
@@ -136,10 +172,9 @@ async def public_spaces():
 
 
 @app.post("/api/chat/voice")
-async def chat_voice(uid: int, request: Request):
+async def chat_voice(uid: int, sig: str, request: Request):
     """Голосовое из чата на сайте: тело запроса — аудио (webm/ogg), до 10 МБ."""
-    if uid >= 0:
-        raise HTTPException(400, "Неверный идентификатор")
+    _web_guard(request, uid, sig, security.VOICE_IP)
     audio = await request.body()
     if len(audio) > speech.MAX_BYTES:
         raise HTTPException(413, "Слишком длинное сообщение")
@@ -149,7 +184,9 @@ async def chat_voice(uid: int, request: Request):
 
 
 @app.get("/api/chat/inbox")
-async def chat_inbox(uid: int):
+async def chat_inbox(uid: int, sig: str):
+    if not security.verify(uid, sig):
+        return {"messages": []}
     guest = await db.query_one("SELECT id FROM guests WHERE max_user_id = %s", (uid,))
     if not guest or uid >= 0:
         return {"messages": []}
@@ -527,6 +564,7 @@ async def admin_me(user: Annotated[dict, Depends(require_admin)]):
 
 class PeriodFilterIn(BaseModel):
     filters: list[dict] = Field(default_factory=list, max_length=20)
+    match: str = Field(default="all", pattern="^(all|any)$")
     date_from: date | None = None
     date_to: date | None = None
 
@@ -539,7 +577,7 @@ async def clients_analytics(date_from: date | None = None, date_to: date | None 
 @app.post("/api/admin/clients/search", dependencies=FULL)
 async def clients_search(inp: PeriodFilterIn):
     try:
-        rows = await loyalty.clients(inp.filters, inp.date_from, inp.date_to, limit=300)
+        rows = await loyalty.clients(inp.filters, inp.date_from, inp.date_to, limit=300, match=inp.match)
     except (ValueError, KeyError) as exc:
         raise HTTPException(400, str(exc)) from exc
     await privacy.audit(config.ADMIN_USER, "list_guests", None, f"клиенты по фильтру, строк: {len(rows)}")
@@ -623,7 +661,10 @@ class AutomationIn(BaseModel):
     trigger: str
     days: int = Field(default=0, ge=0, le=365)
     filters: list[dict] = Field(default_factory=list, max_length=20)
-    action: str
+    match: str = Field(default="all", pattern="^(all|any)$")
+    actions: list[str] = Field(default_factory=list, max_length=6)
+    action: str | None = None
+    staff_message: str = Field(default="", max_length=500)
     bonus_amount: int = Field(default=0, ge=0, le=100000)
     bonus_days: int = Field(default=14, ge=1, le=365)
     message: str = Field(default="", max_length=1500)

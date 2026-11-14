@@ -217,6 +217,8 @@ async def create_hold(
             busy_until = end + timedelta(minutes=prog["cleanup_min"])
             if master_id is None:
                 master_id = await _free_master_id(conn, start, master_until)
+            elif source == "bot":
+                await _check_requested_slot(conn, start, end, master_until, master_id)
             row = await db.fetchone(
                 conn,
                 """INSERT INTO bookings (guest_id, program_id, space_id, master_id, starts_at, ends_at, master_until,
@@ -230,6 +232,17 @@ async def create_hold(
         raise SlotTaken from exc
     events.publish("grid")
     return await get_booking(row["id"])
+
+
+async def _check_requested_slot(conn, start: datetime, end: datetime, master_until: datetime, master_id: int) -> None:
+    """Окно из кнопки гостя проверяется заново: будущее время, рабочие часы, мастер в смене.
+    Так подделанная кнопка не позволит записаться ночью или к мастеру в выходной."""
+    day = start.astimezone(config.TZ).date()
+    open_at, close_at = day_bounds(day)
+    if start < now() or start < open_at or end > close_at:
+        raise SlotTaken
+    if not _on_shift(master_id, start, master_until, await _shifts(conn, day)):
+        raise SlotTaken
 
 
 async def _free_master_id(conn, start: datetime, end: datetime) -> int:

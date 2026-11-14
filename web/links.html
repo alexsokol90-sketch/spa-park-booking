@@ -83,13 +83,7 @@
     <li>Во все карточки — одна и та же ссылка: так все брони попадают в единую сетку администратора без накладок.</li>
   </ol>
 </main>
-<script>
-  document.querySelectorAll("[data-copy]").forEach(function (b) {
-    b.addEventListener("click", function () {
-      navigator.clipboard.writeText(document.getElementById(b.dataset.copy).textContent).then(function () { b.textContent = "Скопировано"; });
-    });
-  });
-</script>
+<script src="static/links.js"></script>
 <script src="static/widget.js" async></script>
 </body>
 </html>

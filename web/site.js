@@ -12,14 +12,18 @@
   let pendingPayload = null;
   let started = false;
 
-  function uid() {
-    let id = Number(localStorage.getItem(UID_KEY));
-    if (!id) {
-      id = -Math.floor(1e6 + Math.random() * 9e9);
-      localStorage.setItem(UID_KEY, String(id));
-    }
-    return id;
+  // Сессию гостя выдаёт сервер: идентификатор + подпись (подобрать чужой диалог нельзя).
+  let session = null;
+  try { session = JSON.parse(localStorage.getItem(UID_KEY) || "null"); } catch (e) { session = null; }
+  async function ensureSession() {
+    if (session && session.uid && session.sig) return session;
+    const resp = await fetch("api/chat/session", { method: "POST" });
+    session = await resp.json();
+    localStorage.setItem(UID_KEY, JSON.stringify(session));
+    return session;
   }
+  function auth() { return session ? { uid: session.uid, sig: session.sig } : {}; }
+  function authQuery() { return session ? "uid=" + session.uid + "&sig=" + session.sig : ""; }
 
   async function post(path, body) {
     const resp = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -134,7 +138,8 @@
     log.append(typing);
     scroll();
     try {
-      const data = await post("api/chat", Object.assign({ uid: uid() }, body));
+      await ensureSession();
+      const data = await post("api/chat", Object.assign(auth(), body));
       typing.remove();
       (data.messages || []).forEach(addBot);
     } catch (e) {
@@ -168,6 +173,7 @@
   document.getElementById("chatReset").onclick = () => {
     localStorage.removeItem(UID_KEY);
     localStorage.removeItem(CONSENT_KEY);
+    session = null;
     log.innerHTML = "";
     started = false;
     gate.hidden = false; log.hidden = true; form.hidden = true;
@@ -182,7 +188,8 @@
   cPd.addEventListener("change", () => { okBtn.disabled = !cPd.checked; });
   okBtn.onclick = async () => {
     okBtn.disabled = true;
-    await post("api/chat/consent", { uid: uid(), pd: true, ads: cAds.checked });
+    await ensureSession();
+    await post("api/chat/consent", Object.assign(auth(), { pd: true, ads: cAds.checked }));
     localStorage.setItem(CONSENT_KEY, new Date().toISOString());
     showChat();
   };
@@ -208,7 +215,8 @@
     log.append(typing);
     scroll();
     try {
-      const resp = await fetch("api/chat/voice?uid=" + uid(), { method: "POST", headers: { "Content-Type": blob.type || "audio/webm" }, body: blob });
+      await ensureSession();
+      const resp = await fetch("api/chat/voice?" + authQuery(), { method: "POST", headers: { "Content-Type": blob.type || "audio/webm" }, body: blob });
       const data = await resp.json();
       typing.remove();
       (data.messages || []).forEach(addBot);
@@ -247,7 +255,8 @@
   async function poll() {
     if (!started) return;
     try {
-      const resp = await fetch("api/chat/inbox?uid=" + uid());
+      if (!session) return;
+      const resp = await fetch("api/chat/inbox?" + authQuery());
       const data = await resp.json();
       (data.messages || []).forEach(addBot);
     } catch (e) { /* сеть недоступна — повторим позже */ }

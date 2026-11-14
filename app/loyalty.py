@@ -215,9 +215,10 @@ def period(date_from: date | None, date_to: date | None) -> dict:
 
 
 async def clients(filters: list[dict] | None = None, date_from: date | None = None, date_to: date | None = None,
-                  only_ads: bool = False, limit: int = 500) -> list[dict]:
+                  only_ads: bool = False, limit: int = 500, match: str = "all") -> list[dict]:
     params = period(date_from, date_to)
-    where = [condition(i, f, params) for i, f in enumerate(filters or [])]
+    conditions = [condition(i, f, params) for i, f in enumerate(filters or [])]
+    where = ["(" + (" OR " if match == "any" else " AND ").join(conditions) + ")"] if conditions else []
     if only_ads:
         where.append("c.ads_ok")
     sql = CLIENTS_CTE + "SELECT * FROM clients c" + (" WHERE " + " AND ".join(where) if where else "")

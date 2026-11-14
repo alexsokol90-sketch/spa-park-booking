@@ -44,6 +44,7 @@ PORT = int(os.getenv("PORT", "3030"))
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://spa:spa@127.0.0.1:5432/spa")
 ADMIN_USER = os.getenv("ADMIN_USER", "admin")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "").strip()
+SECRET_KEY = os.getenv("SECRET_KEY", "").strip()  # подпись сессий веб-чата
 PROJECT_NAME = "СПА-парк — онлайн-запись и ИИ-ассистент"
 
 # Предметная область «СПА-парк», Нижневартовск.

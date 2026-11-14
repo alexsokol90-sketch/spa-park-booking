@@ -21,6 +21,7 @@ from . import (
     loyalty,
     nlu,
     notify,
+    security,
     speech,
     staff,
 )
@@ -65,6 +66,8 @@ def is_night() -> bool:
 # ---------- точка входа ----------
 
 async def handle(guest: dict, text: str | None = None, payload: str | None = None, phone: str | None = None) -> list[Out]:
+    if not security.CHAT_GUEST.allow(f"g{guest['id']}"):
+        return [Out(text=t("too_fast", guest.get("lang") or "ru"))]
     state = await guests.get_state(guest["id"])
     ctx = Ctx(guest, state)
     await guests.log(ctx.gid, "guest", text or phone or f"[кнопка] {payload}")
@@ -319,6 +322,10 @@ async def offer_alternatives(ctx: Ctx, program_id: int, wanted: datetime, guests
 # ---------- шаг 4: данные гостя и согласия ----------
 
 async def p_confirm(ctx: Ctx, arg: str) -> None:
+    hold = await db.query_one("SELECT guest_id FROM bookings WHERE id = %s", (int(arg),))
+    if not hold or hold["guest_id"] != ctx.gid:
+        await greet(ctx)  # чужой захват подтвердить нельзя
+        return
     ctx.state["hold_id"] = int(arg)
     await proceed_confirm(ctx)
 

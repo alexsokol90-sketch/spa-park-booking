@@ -24,6 +24,7 @@ sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname = 'spa'" | grep 
 sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname = 'spa'" | grep -q 1 \
     || sudo -u postgres psql -qc "CREATE DATABASE spa OWNER spa"
 sudo -u postgres psql -d spa -qc "CREATE EXTENSION IF NOT EXISTS btree_gist"
+grep -q '^SECRET_KEY=' "$APP_DIR/.env" 2>/dev/null || echo "SECRET_KEY=$(openssl rand -hex 32)" >> "$APP_DIR/.env"
 grep -q '^DATABASE_URL=' "$APP_DIR/.env" 2>/dev/null \
     || echo "DATABASE_URL=postgresql://spa:${DB_PASSWORD}@127.0.0.1:5432/spa" >> "$APP_DIR/.env"
 chmod 600 "$APP_DIR/.env"
@@ -39,7 +40,7 @@ After=network.target postgresql.service
 
 [Service]
 WorkingDirectory=$APP_DIR
-ExecStart=$APP_DIR/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 3030 --timeout-graceful-shutdown 3
+ExecStart=$APP_DIR/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 3030 --timeout-graceful-shutdown 3 --no-server-header
 Restart=always
 RestartSec=2
 TimeoutStopSec=8
@@ -62,11 +63,12 @@ $DOMAIN {
 		X-Content-Type-Options nosniff
 		Referrer-Policy strict-origin-when-cross-origin
 	}
-	# Помощника записи (страница /) можно встроить виджетом только на сайт заказчика.
-	@embeddable path /
-	header @embeddable Content-Security-Policy "frame-ancestors 'self' https://spapark86.ru https://*.spapark86.ru"
+	# CSP (в т.ч. frame-ancestors: встраивание помощника только на spapark86.ru) выставляет приложение.
 	@not_embeddable not path /
 	header @not_embeddable X-Frame-Options SAMEORIGIN
+	request_body {
+		max_size 12MB
+	}
 	reverse_proxy 127.0.0.1:3030 {
 		flush_interval -1
 	}

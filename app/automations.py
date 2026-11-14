@@ -16,8 +16,8 @@ TRIGGERS = {
     "inactive": "Нет визитов N дней",
     "registration": "После регистрации",
 }
-ACTIONS = {"bonus": "Начислить бонусы", "message": "Отправить сообщение", "segment_add": "Добавить в сегмент",
-           "segment_remove": "Удалить из сегмента"}
+ACTIONS = {"bonus": "Начислить бонусы", "segment_add": "Добавить в сегмент", "segment_remove": "Удалить из сегмента",
+           "message": "Отправить сообщение", "staff_message": "Отправить сообщение сотруднику"}
 # Кнопки рассылок: текстовые ответы ведут в сценарии бота.
 REPLY_BUTTONS = {"book": "Записаться", "invite": "Пригласить друга", "bonuses": "Мои бонусы", "faq:promo": "Акции"}
 VARIABLES = {
@@ -126,26 +126,35 @@ def _trigger_sql(trigger: str) -> str:
 async def _candidates(auto: dict) -> list[dict]:
     params = loyalty.period(None, None) | {"days": auto["days"]}
     where = [loyalty.condition(i, f, params) for i, f in enumerate(auto["filters"] or [])]
+    glue = " OR " if auto.get("match") == "any" else " AND "
     sql = loyalty.CLIENTS_CTE + "SELECT t.id, t.run_key FROM (" + _trigger_sql(auto["trigger"]) + ") t"
     if where:
-        sql += " JOIN clients c ON c.id = t.id WHERE " + " AND ".join(where)
+        sql += " JOIN clients c ON c.id = t.id WHERE (" + glue.join(where) + ")"
     return await db.query(sql, params)
 
 
+def actions_of(auto: dict) -> list[str]:
+    """Включённые действия; у старых записей — одно поле action."""
+    return [a for a in (auto.get("actions") or [auto.get("action")]) if a in ACTIONS]
+
+
 async def _act(auto: dict, guest_id: int) -> bool:
-    if auto["action"] == "bonus":
+    todo = actions_of(auto)
+    if "bonus" in todo and auto["bonus_amount"] > 0:
         await loyalty.gift(guest_id, auto["bonus_amount"], auto["bonus_days"], auto["name"])
-    elif auto["action"] == "segment_add":
+    if "segment_add" in todo and auto["segment"]:
         await db.query(
             "INSERT INTO guest_segments (guest_id, segment) VALUES (%s, %s) ON CONFLICT DO NOTHING RETURNING guest_id",
             (guest_id, auto["segment"]),
         )
-    elif auto["action"] == "segment_remove":
+    if "segment_remove" in todo and auto["segment"]:
         await db.query("DELETE FROM guest_segments WHERE guest_id = %s AND segment = %s RETURNING guest_id", (guest_id, auto["segment"]))
     client = await loyalty.client(guest_id)
-    if auto["message"] and client and client["ads_ok"]:
+    if "message" in todo and auto["message"] and client and client["ads_ok"]:
         text = await render(auto["message"], client)
         await notify.to_guest(await guests.get(guest_id), build_out(text, [{"type": "reply", "payload": "book"}]), "automation")
+    if "staff_message" in todo and auto.get("staff_message") and client:
+        await notify.to_admin(f"{auto['name']}: {await render(auto['staff_message'], client)} ({client['phone']})", kind="automation")
     return True
 
 
@@ -179,21 +188,24 @@ async def listing() -> list[dict]:
 
 
 async def save(data: dict, auto_id: int | None = None) -> dict:
-    if data["trigger"] not in TRIGGERS or data["action"] not in ACTIONS:
-        raise ValueError("Неизвестное событие или действие")
+    actions = [a for a in (data.get("actions") or ([data["action"]] if data.get("action") else [])) if a in ACTIONS]
+    if data["trigger"] not in TRIGGERS or not actions:
+        raise ValueError("Выберите событие и хотя бы одно действие")
+    match = "any" if data.get("match") == "any" else "all"
     values = (data["name"].strip()[:120], data["trigger"], int(data.get("days") or 0),
-              json.dumps(data.get("filters") or [], ensure_ascii=False), data["action"], int(data.get("bonus_amount") or 0),
-              int(data.get("bonus_days") or 14), str(data.get("message") or "")[:1500], str(data.get("segment") or "")[:60],
-              bool(data.get("active", True)))
+              json.dumps(data.get("filters") or [], ensure_ascii=False), actions[0], json.dumps(actions), match,
+              int(data.get("bonus_amount") or 0), int(data.get("bonus_days") or 14), str(data.get("message") or "")[:1500],
+              str(data.get("staff_message") or "")[:500], str(data.get("segment") or "")[:60], bool(data.get("active", True)))
     if auto_id:
         return await db.query_one(
-            """UPDATE automations SET name=%s, trigger=%s, days=%s, filters=%s, action=%s, bonus_amount=%s, bonus_days=%s,
-                   message=%s, segment=%s, active=%s WHERE id=%s RETURNING *""",
+            """UPDATE automations SET name=%s, trigger=%s, days=%s, filters=%s, action=%s, actions=%s, match=%s, bonus_amount=%s,
+                   bonus_days=%s, message=%s, staff_message=%s, segment=%s, active=%s WHERE id=%s RETURNING *""",
             (*values, auto_id),
         )
     return await db.query_one(
-        """INSERT INTO automations (name, trigger, days, filters, action, bonus_amount, bonus_days, message, segment, active)
-           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
+        """INSERT INTO automations (name, trigger, days, filters, action, actions, match, bonus_amount, bonus_days, message,
+                                    staff_message, segment, active)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
         values,
     )
 

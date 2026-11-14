@@ -364,3 +364,8 @@ ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS buttons jsonb NOT NULL DEFAULT '[
 ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS scheduled_at timestamptz;
 ALTER TABLE campaigns DROP CONSTRAINT IF EXISTS campaigns_status_check;
 ALTER TABLE campaigns ADD CONSTRAINT campaigns_status_check CHECK (status IN ('draft', 'scheduled', 'sent'));
+
+-- Автоматизации: несколько действий сразу, «все условия / любое условие», сообщение сотруднику.
+ALTER TABLE automations ADD COLUMN IF NOT EXISTS actions jsonb NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE automations ADD COLUMN IF NOT EXISTS match text NOT NULL DEFAULT 'all';
+ALTER TABLE automations ADD COLUMN IF NOT EXISTS staff_message text NOT NULL DEFAULT '';

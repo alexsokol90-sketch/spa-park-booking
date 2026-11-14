@@ -29,6 +29,7 @@ TOOLS = [
                 "program_id": {"type": "integer"},
                 "date": {"type": "string", "description": "YYYY-MM-DD"},
                 "time": {"type": "string", "description": "Желаемое время HH:MM, если гость его назвал"},
+                "guests": {"type": "integer", "description": "1 или 2 гостя"},
             },
             "required": ["program_id", "date"],
         },
@@ -87,16 +88,42 @@ def enabled() -> bool:
     return provider() is not None
 
 
+def _prices(row: dict) -> str:
+    parts = []
+    if row["price"] is not None:
+        parts.append(f"1 гость — {row['price']} ₽")
+    if row["price_couple"] is not None:
+        parts.append(f"двое — {row['price_couple']} ₽")
+    return "; ".join(parts)
+
+
 async def _catalog_text() -> str:
     rows = await db.query(
-        """SELECT p.id, p.name, p.duration_min, p.price, p.max_guests, p.description, s.id AS sid, s.name AS space
-           FROM programs p JOIN spaces s ON s.id = p.space_id WHERE p.active ORDER BY s.sort, p.price"""
+        """SELECT p.id, p.name, p.name_en, p.duration_min, p.price, p.price_couple, p.description, s.id AS sid, s.name AS space
+           FROM programs p JOIN spaces s ON s.id = p.space_id WHERE p.active ORDER BY s.sort, COALESCE(p.price, p.price_couple)"""
     )
     return "\n".join(
-        f"#{r['id']} [{r['space']} sid={r['sid']}] {r['name']} — {r['duration_min']} мин, {r['price']} ₽, "
-        f"до {r['max_guests']} гостей. {r['description']}"
+        f"#{r['id']} [{r['space']}, sid={r['sid']}] {r['name']} / {r['name_en']} — {r['duration_min']} мин; {_prices(r)}. {r['description']}"
         for r in rows
     )
+
+
+PART_OF_DAY = {"утро": (11, 0), "morning": (11, 0), "день": (14, 0), "afternoon": (14, 0), "вечер": (19, 0), "evening": (19, 0)}
+
+
+def _parse_clock(raw: str | None) -> tuple[int, int] | None:
+    """Время от модели: «19:00», «19», «вечер», «evening». Непонятное — None (без желаемого времени)."""
+    if not raw:
+        return None
+    raw = str(raw).strip().lower()
+    for word, clock in PART_OF_DAY.items():
+        if word in raw:
+            return clock
+    digits = raw.replace(".", ":").split(":")
+    if digits[0].isdigit() and 0 <= int(digits[0]) <= 23:
+        minute = int(digits[1]) if len(digits) > 1 and digits[1][:2].isdigit() else 0
+        return int(digits[0]), minute
+    return None
 
 
 async def system_prompt(ctx) -> str:
@@ -108,6 +135,11 @@ async def system_prompt(ctx) -> str:
 
 Правила:
 - Называй только программы, цены и условия из каталога и базы знаний ниже. Скидок и акций не придумывай.
+- Строго соблюдай бюджет гостя и число гостей: для двоих называй цену «двое», для одного — «1 гость». Программы без цены для нужного числа гостей не предлагай.
+- Называй программы точно как в каталоге (на английском — английским названием из каталога), чтобы под ответом появились кнопки.
+- Никогда не показывай гостю ID, номера программ, форматы дат и названия инструментов. Дату и время гость говорит своими словами, переводишь ты сам (сегодняшняя дата указана выше).
+- Подбирая программы, сначала коротко перечисли 2–3 подходящие с ценой и длительностью и спроси, какая нравится и на какой день.
+- Если гость пишет «завтра вечером» и т. п., а программа уже обсуждалась, вызови find_slots с этой программой; время передавай как HH:MM (вечер — 19:00, день — 14:00, утро — 11:00).
 - Не обещай свободное окно сам: используй find_slots, а при выборе гостем времени — hold_slot.
 - Никогда не пиши, что гость записан: бронь подтверждается только кнопкой «Подтвердить».
 - Не давай медицинских рекомендаций и не решай, можно ли гостю процедуру. При сомнениях о здоровье — escalate(health).
@@ -125,15 +157,25 @@ async def system_prompt(ctx) -> str:
 
 
 async def _run_tool(ctx, name: str, args: dict) -> str:
+    """Выполнение инструмента. Ошибка в аргументах возвращается модели текстом, чтобы она могла исправиться."""
+    try:
+        return await _dispatch_tool(ctx, name, args)
+    except (KeyError, ValueError, TypeError) as exc:
+        log.info("tool %s bad args %s: %s", name, args, exc)
+        return f"Ошибка аргументов: {exc}. Уточни у гостя программу (program_id из каталога) и дату YYYY-MM-DD."
+
+
+async def _dispatch_tool(ctx, name: str, args: dict) -> str:
     from . import dialog  # локальный импорт: dialog зависит от ai
 
     if name == "find_slots":
         around = None
-        day = date.fromisoformat(args["date"])
-        if args.get("time"):
-            hour, minute = (int(x) for x in args["time"].split(":"))
-            around = datetime.combine(day, datetime.min.time(), tzinfo=config.TZ).replace(hour=hour, minute=minute)
-        await dialog.show_slots(ctx, int(args["program_id"]), day, around=around)
+        day = date.fromisoformat(str(args["date"]))
+        clock = _parse_clock(args.get("time"))
+        if clock:
+            around = datetime.combine(day, datetime.min.time(), tzinfo=config.TZ).replace(hour=clock[0], minute=clock[1])
+        guests_count = 2 if str(args.get("guests", "1")) == "2" else None
+        await dialog.show_slots(ctx, int(args["program_id"]), day, around=around, guests_count=guests_count)
         return "Гостю показаны кнопки свободного времени (или другие дни, если этот занят)."
     if name == "hold_slot":
         start = datetime.fromisoformat(args["start"]).replace(tzinfo=config.TZ)
@@ -203,11 +245,22 @@ async def _external_reply(ctx, text: str, run_agent) -> bool:
     try:
         final_text = await run_agent(await system_prompt(ctx), await _history(ctx, text), TOOLS, run_tool, MAX_STEPS)
     except (httpx.HTTPError, KeyError, ValueError) as exc:
-        log.warning("GigaChat error: %s", exc)
+        log.warning("LLM error: %s", exc)
         return len(ctx.out) > ui_before
     if final_text:
-        ctx.out.insert(ui_before, Out(text=final_text))
+        buttons = [] if len(ctx.out) > ui_before else await _buttons_for_mentioned(final_text, ctx)
+        ctx.out.insert(ui_before, Out(text=final_text, buttons=buttons))
     return len(ctx.out) > ui_before
+
+
+async def _buttons_for_mentioned(text: str, ctx) -> list[list[tuple[str, str]]]:
+    """Если модель назвала программы, но не вызвала инструмент, — даём кнопки этих программ (гибридный ввод)."""
+    low = text.lower()
+    rows = await db.query("SELECT id, name, name_en FROM programs WHERE active")
+    found = [r for r in rows if r["name"].lower() in low or r["name_en"].lower() in low]
+    en = ctx.lang == "en"
+    buttons = [[(r["name_en"] if en else r["name"], f"prog:{r['id']}")] for r in found[:6]]
+    return buttons + [[("Menu" if en else "В меню", "menu")]]
 
 
 async def _claude_reply(ctx, text: str) -> bool:

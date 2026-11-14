@@ -39,9 +39,10 @@ After=network.target postgresql.service
 
 [Service]
 WorkingDirectory=$APP_DIR
-ExecStart=$APP_DIR/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 3030
+ExecStart=$APP_DIR/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 3030 --timeout-graceful-shutdown 3
 Restart=always
 RestartSec=2
+TimeoutStopSec=8
 
 [Install]
 WantedBy=multi-user.target

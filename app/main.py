@@ -32,6 +32,8 @@ from . import (
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+# httpx пишет в журнал полные URL запросов — в адресе Bot API есть токен, поэтому только предупреждения.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 WEB = config.ROOT / "web"
 security = HTTPBasic(auto_error=False)
 

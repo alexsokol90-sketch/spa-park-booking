@@ -50,7 +50,8 @@ async def mark_visit(booking_id: int, attended: bool, paid: int | None = None, b
         return {"status": "no_show"}
     paid = bk["price_total"] if paid is None else paid
     balance = (await db.query_one("SELECT loyalty_points FROM guests WHERE id = %s", (bk["guest_id"],)))["loyalty_points"]
-    bonus_spent = max(0, min(bonus_spent, balance, int((paid + bonus_spent) * MAX_REDEEM_SHARE)))
+    # Бонусами — не больше половины стоимости программы и не больше баланса.
+    bonus_spent = max(0, min(bonus_spent, balance, int(bk["price_total"] * MAX_REDEEM_SHARE)))
     await db.query(
         "UPDATE bookings SET status = 'completed', paid_amount = %s, bonus_spent = %s WHERE id = %s RETURNING id",
         (paid, bonus_spent, booking_id),

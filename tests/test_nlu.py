@@ -95,3 +95,11 @@ def test_llm_json_action_parsing():
     plain = parse_action("Здравствуйте! Чем помочь?")
     assert plain["tool"] is None
     assert plain["reply"].startswith("Здравствуйте")
+
+
+def test_calendar_for_model_has_correct_weekdays():
+    from app.ai import calendar_text
+
+    text = calendar_text(date(2026, 11, 14), days=3)
+    assert text.startswith("суббота 2026-11-14 (сегодня)")
+    assert "понедельник 2026-11-16 (послезавтра)" in text

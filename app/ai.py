@@ -6,7 +6,7 @@
 """
 import logging
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import anthropic
 import httpx
@@ -136,11 +136,24 @@ def _parse_clock(raw: str | None) -> tuple[int, int] | None:
     return None
 
 
+WEEKDAYS_RU = ["понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье"]
+
+
+def calendar_text(today: date, days: int = 14) -> str:
+    """Готовый календарь: модели не нужно самой вычислять, какая дата у «понедельника»."""
+    marks = {0: " (сегодня)", 1: " (завтра)", 2: " (послезавтра)"}
+    return "; ".join(
+        f"{WEEKDAYS_RU[(today + timedelta(days=i)).weekday()]} {(today + timedelta(days=i)).isoformat()}{marks.get(i, '')}"
+        for i in range(days)
+    )
+
+
 async def system_prompt(ctx) -> str:
     now = datetime.now(config.TZ)
     lang = "английском" if ctx.lang == "en" else "русском"
     return f"""Ты — ассистент спа-центра «СПА-парк» в Нижневартовске в мессенджере MAX.
 Сейчас {now:%Y-%m-%d %H:%M}, {fmt_when(now, 'ru')}. Гость: {ctx.guest.get('name') or 'имя неизвестно'}.
+Календарь (используй его для дат, сам дни недели не вычисляй): {calendar_text(now.date())}
 Отвечай на {lang} языке. Тон: спокойный, премиальный, на «вы», по имени, без канцелярита, давления и обилия эмодзи. Коротко: 1–4 предложения.
 
 Правила:

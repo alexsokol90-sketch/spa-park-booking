@@ -1,28 +1,77 @@
+"""HTTP-сервис: веб-эмулятор чата гостя, интерфейс администратора, API."""
 import asyncio
 import logging
+import secrets
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from datetime import date, datetime
+
+from fastapi import Depends, FastAPI, HTTPException
+from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
-from . import ai, config, domain, max_bot
+from pydantic import BaseModel, Field
+
+from . import ai, booking, config, db, dialog, escalation, events, guests, marketing, max_bot, notify, scheduler
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
 WEB = config.ROOT / "web"
+security = HTTPBasic(auto_error=False)
 
 
 @asynccontextmanager
-async def lifespan(app):
-    task = asyncio.create_task(max_bot.run())
+async def lifespan(_app: FastAPI):
+    await db.open_pool()
+    await db.apply_schema()
+    tasks = [asyncio.create_task(scheduler.loop()), asyncio.create_task(max_bot.run())]
     yield
-    task.cancel()
+    for task in tasks:
+        task.cancel()
+    await db.close_pool()
 
 
 app = FastAPI(title=config.PROJECT_NAME, lifespan=lifespan)
 
 
+def require_admin(creds: HTTPBasicCredentials | None = Depends(security)) -> None:
+    if not config.ADMIN_PASSWORD:
+        return
+    ok = creds is not None and secrets.compare_digest(creds.username, config.ADMIN_USER) and secrets.compare_digest(
+        creds.password, config.ADMIN_PASSWORD
+    )
+    if not ok:
+        raise HTTPException(status_code=401, headers={"WWW-Authenticate": "Basic"})
+
+
+ADMIN = [Depends(require_admin)]
+
+
+# ---------- веб-эмулятор чата гостя (тот же движок, что и в MAX) ----------
+
 class ChatIn(BaseModel):
-    history: list[dict]
+    uid: int = Field(lt=0, description="Отрицательный id — гость веб-эмулятора")
+    name: str | None = Field(default=None, max_length=60)
+    text: str | None = Field(default=None, max_length=2000)
+    payload: str | None = Field(default=None, max_length=1024)
+    phone: str | None = Field(default=None, max_length=30)
+
+
+@app.post("/api/chat")
+async def chat(inp: ChatIn):
+    guest = await guests.by_channel(inp.uid, inp.name)
+    if not (inp.text or inp.payload or inp.phone):
+        outs = await dialog.handle(guest, payload="menu")
+    else:
+        outs = await dialog.handle(guest, text=inp.text, payload=inp.payload, phone=inp.phone)
+    return {"messages": [o.as_dict() for o in outs]}
+
+
+@app.get("/api/chat/inbox")
+async def chat_inbox(uid: int):
+    guest = await db.query_one("SELECT id FROM guests WHERE max_user_id = %s", (uid,))
+    if not guest or uid >= 0:
+        return {"messages": []}
+    items = notify.web_inbox.pop(guest["id"], [])
+    return {"messages": items}
 
 
 @app.get("/api/health")
@@ -30,16 +79,231 @@ async def health():
     return {"ok": True, "ai": ai.enabled(), "max_bot": bool(config.MAX_BOT_TOKEN), "model": config.MODEL}
 
 
-@app.get("/api/config")
-async def cfg():
-    return {"name": config.PROJECT_NAME, "welcome": domain.WELCOME, "quick": [t for t, _ in domain.QUICK_ACTIONS]}
+# ---------- администратор ----------
+
+@app.get("/api/admin/grid", dependencies=ADMIN)
+async def admin_grid(day: date | None = None):
+    day = day or booking.now().date()
+    spaces = await db.query("SELECT id, name, is_relax FROM spaces ORDER BY sort")
+    masters = await db.query("SELECT id, name FROM masters WHERE active ORDER BY id")
+    items = await booking.day_bookings(day)
+    return {"day": day.isoformat(), "now": booking.now().isoformat(), "spaces": spaces, "masters": masters, "bookings": items}
 
 
-@app.post("/api/chat")
-async def chat(inp: ChatIn):
-    hist = [{"role": m["role"], "content": str(m["content"])[:4000]} for m in inp.history if m.get("role") in ("user", "assistant")]
-    return {"answer": await ai.answer(hist)}
+@app.get("/api/admin/stream", dependencies=ADMIN)
+async def admin_stream():
+    queue = events.subscribe()
 
+    async def gen():
+        try:
+            yield "event: hello\ndata: ok\n\n"
+            while True:
+                try:
+                    kind = await asyncio.wait_for(queue.get(), timeout=15)
+                    yield f"event: change\ndata: {kind}\n\n"
+                except TimeoutError:
+                    yield ": ping\n\n"
+        finally:
+            events.unsubscribe(queue)
+
+    return StreamingResponse(gen(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/api/admin/catalog", dependencies=ADMIN)
+async def admin_catalog():
+    programs = await db.query(
+        "SELECT p.*, s.name AS space_name FROM programs p JOIN spaces s ON s.id = p.space_id WHERE p.active ORDER BY s.sort, p.price"
+    )
+    return {"programs": programs}
+
+
+@app.get("/api/admin/slots", dependencies=ADMIN)
+async def admin_slots(program_id: int, day: date):
+    slots = await booking.free_slots_public(program_id, day)
+    return {"slots": [s.as_dict() for s in slots]}
+
+
+class AdminHoldIn(BaseModel):
+    program_id: int
+    start: datetime
+    phone: str = Field(max_length=30)
+    name: str | None = Field(default=None, max_length=60)
+    master_id: int | None = None
+
+
+@app.post("/api/admin/hold", dependencies=ADMIN)
+async def admin_hold(inp: AdminHoldIn):
+    phone = guests.normalize_phone(inp.phone)
+    if not phone:
+        raise HTTPException(400, "Неверный телефон")
+    guest = await db.query_one("SELECT * FROM guests WHERE phone = %s", (phone,))
+    if not guest:
+        guest = await db.query_one(
+            "INSERT INTO guests (phone, name, loyalty_card) VALUES (%s, %s, NULL) RETURNING *", (phone, inp.name)
+        )
+    try:
+        return await booking.create_hold(guest["id"], inp.program_id, inp.start, inp.master_id, "admin")
+    except booking.SlotTaken as exc:
+        alts = await booking.alternatives(inp.program_id, inp.start)
+        raise HTTPException(409, {"message": "Окно занято", "alternatives": [a.as_dict() for a in alts]}) from exc
+
+
+@app.get("/api/admin/bookings/{booking_id}", dependencies=ADMIN)
+async def admin_booking(booking_id: int):
+    return await booking.get_booking(booking_id)
+
+
+@app.post("/api/admin/bookings/{booking_id}/confirm", dependencies=ADMIN)
+async def admin_confirm(booking_id: int):
+    try:
+        return await booking.confirm(booking_id)
+    except booking.BookingError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@app.post("/api/admin/bookings/{booking_id}/cancel", dependencies=ADMIN)
+async def admin_cancel(booking_id: int):
+    return {"ok": await booking.cancel(booking_id)}
+
+
+class PaymentIn(BaseModel):
+    status: str = Field(pattern="^(unpaid|prepaid|paid|certificate)$")
+    method: str | None = Field(default=None, max_length=40)
+
+
+@app.post("/api/admin/bookings/{booking_id}/payment", dependencies=ADMIN)
+async def admin_payment(booking_id: int, inp: PaymentIn):
+    await db.query(
+        "UPDATE bookings SET payment_status = %s, payment_method = %s WHERE id = %s RETURNING id",
+        (inp.status, inp.method, booking_id),
+    )
+    events.publish("grid")
+    return await booking.get_booking(booking_id)
+
+
+@app.get("/api/admin/escalations", dependencies=ADMIN)
+async def admin_escalations():
+    return {"items": await escalation.open_list()}
+
+
+@app.post("/api/admin/escalations/{esc_id}/accept", dependencies=ADMIN)
+async def admin_esc_accept(esc_id: int):
+    await escalation.accept(esc_id)
+    return {"ok": True}
+
+
+@app.post("/api/admin/escalations/{esc_id}/close", dependencies=ADMIN)
+async def admin_esc_close(esc_id: int):
+    await escalation.close(esc_id)
+    return {"ok": True}
+
+
+class ReplyIn(BaseModel):
+    text: str = Field(min_length=1, max_length=2000)
+
+
+@app.post("/api/admin/escalations/{esc_id}/reply", dependencies=ADMIN)
+async def admin_esc_reply(esc_id: int, inp: ReplyIn):
+    esc = await db.query_one("SELECT guest_id FROM escalations WHERE id = %s", (esc_id,))
+    if not esc:
+        raise HTTPException(404)
+    guest = await guests.get(esc["guest_id"])
+    await escalation.accept(esc_id)
+    await guests.log(guest["id"], "admin", inp.text)
+    out = notify.Out(text=f"Администратор: {inp.text}")
+    if guest.get("max_user_id") and guest["max_user_id"] < 0:
+        notify.web_inbox[guest["id"]].append(out.as_dict())
+    else:
+        await max_bot.send_out(guest.get("max_user_id"), out)
+    events.publish("escalations")
+    return {"ok": True}
+
+
+@app.get("/api/admin/no-answer", dependencies=ADMIN)
+async def admin_no_answer():
+    return {"items": await scheduler.no_answer_list()}
+
+
+@app.get("/api/admin/feed", dependencies=ADMIN)
+async def admin_feed():
+    return {"items": list(reversed(notify.admin_feed))}
+
+
+@app.get("/api/admin/consumption", dependencies=ADMIN)
+async def admin_consumption(day: date | None = None):
+    """Расход предзаказов на день — для подготовки чая и добавок."""
+    day = day or booking.now().date()
+    start, end = booking.day_bounds(day)
+    rows = await db.query(
+        """SELECT i.name, i.category, sum(bp.qty) AS qty, i.stock FROM booking_preorders bp
+           JOIN bookings b ON b.id = bp.booking_id JOIN preorder_items i ON i.id = bp.item_id
+           WHERE b.status = 'confirmed' AND b.starts_at >= %s AND b.starts_at < %s
+           GROUP BY i.id ORDER BY i.category, i.name""",
+        (start, end),
+    )
+    return {"items": rows}
+
+
+@app.get("/api/admin/guests", dependencies=ADMIN)
+async def admin_guests(q: str = ""):
+    like = f"%{q.strip()}%"
+    rows = await db.query(
+        f"""SELECT g.id, g.name, g.phone, g.birth_date, g.loyalty_card, g.loyalty_points, g.lang,
+                  {marketing.LAST_VISIT} AS last_visit,
+                  (SELECT count(*) FROM bookings b WHERE b.guest_id = g.id AND b.status = 'completed') AS visits,
+                  {marketing.ADS_OK} AS ads_ok
+           FROM guests g WHERE g.phone IS NOT NULL AND (g.name ILIKE %s OR g.phone LIKE %s)
+           ORDER BY g.name LIMIT 100""",  # noqa: S608 — подставляются только константы модуля
+        (like, like),
+    )
+    return {"items": rows}
+
+
+@app.get("/api/admin/marketing/segments", dependencies=ADMIN)
+async def mk_segments():
+    return {"segments": await marketing.segment_counts(), "history": await marketing.history()}
+
+
+class CampaignIn(BaseModel):
+    segment: str
+    template: str = Field(min_length=5, max_length=1500)
+    name: str = Field(default="Рассылка", max_length=100)
+    goal: str = Field(default="", max_length=300)
+
+
+def _check_segment(segment: str) -> None:
+    if segment not in marketing.SEGMENTS:
+        raise HTTPException(400, "Неизвестный сегмент")
+
+
+@app.post("/api/admin/marketing/preview", dependencies=ADMIN)
+async def mk_preview(inp: CampaignIn):
+    _check_segment(inp.segment)
+    return {"items": await marketing.preview(inp.segment, inp.template)}
+
+
+@app.post("/api/admin/marketing/send", dependencies=ADMIN)
+async def mk_send(inp: CampaignIn):
+    _check_segment(inp.segment)
+    return await marketing.send(inp.segment, inp.template, inp.name)
+
+
+@app.post("/api/admin/marketing/generate", dependencies=ADMIN)
+async def mk_generate(inp: CampaignIn):
+    _check_segment(inp.segment)
+    return {"template": await marketing.generate_template(inp.segment, inp.goal), "ai": ai.enabled()}
+
+
+@app.post("/api/admin/jobs/{name}", dependencies=ADMIN)
+async def run_job(name: str):
+    """Ручной запуск ежедневной задачи (для демонстрации и проверки)."""
+    job = scheduler.JOBS_BY_NAME.get(name)
+    if not job:
+        raise HTTPException(404)
+    return {"result": await job()}
+
+
+# ---------- статика ----------
 
 app.mount("/static", StaticFiles(directory=WEB), name="static")
 
@@ -47,3 +311,8 @@ app.mount("/static", StaticFiles(directory=WEB), name="static")
 @app.get("/")
 async def index():
     return FileResponse(WEB / "index.html")
+
+
+@app.get("/admin", dependencies=ADMIN)
+async def admin_page():
+    return FileResponse(WEB / "admin.html")

@@ -52,7 +52,10 @@
   <section id="tab-guests" class="tab">
     <h2>База гостей</h2>
     <input type="search" id="guestQ" placeholder="Имя или телефон" class="search">
-    <table class="table" id="guestsTable"></table>
+    <p class="muted">Нажмите на гостя, чтобы открыть карточку: согласия с версиями текстов, история визитов, выгрузка и удаление данных по запросу.</p>
+    <table class="table clickable" id="guestsTable"></table>
+    <h3>Журнал доступа к персональным данным</h3>
+    <table class="table" id="pdLog"></table>
   </section>
 
   <section id="tab-marketing" class="tab">
@@ -61,8 +64,10 @@
     <div class="mk">
       <div class="mk-left">
         <div id="segments" class="segments"></div>
+        <div id="segParam"></div>
         <label>Цель рассылки (для генерации ИИ)<input id="mkGoal" placeholder="например: пригласить на новую программу в «Японии»"></label>
         <label>Текст (переменные: {name}, {last_program})<textarea id="mkText" rows="5"></textarea></label>
+        <label class="check"><input type="checkbox" id="mkAi"> Персонализировать текст для каждого гостя (ИИ по истории визитов)</label>
         <div class="row-actions">
           <button type="button" id="mkGen">Сгенерировать текст ИИ</button>
           <button type="button" id="mkPreview">Предпросмотр</button>

@@ -92,3 +92,11 @@ button:disabled { opacity: .5; cursor: default; }
 .toast.escalation { background: var(--danger); }
 .toast.hold_warning { background: var(--hold); color: var(--ink); }
 .gtime div:first-child { transform: none; }
+.clickable tr:not(:first-child) { cursor: pointer; }
+.clickable tr:not(:first-child):hover td { background: #f6f2ec; }
+.check { display: flex !important; gap: 8px; align-items: center; }
+.check input { width: auto !important; margin: 0 !important; }
+.consent-row { border-bottom: 1px solid var(--line); padding: 6px 0; font-size: 13px; }
+.consent-row .ok { color: var(--accent); font-weight: 600; }
+.consent-row .no { color: var(--danger); font-weight: 600; }
+.btnlink { border: 1px solid var(--line); background: #fff; padding: 7px 12px; border-radius: 8px; color: var(--ink); text-decoration: none; font-size: 14px; }

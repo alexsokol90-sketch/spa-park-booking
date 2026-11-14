@@ -248,8 +248,9 @@
       ["Программа", b.program_name],
       ["Пространство", b.space_name],
       ["Время", fmtDate(b.starts_at) + ", " + fmtTime(b.starts_at) + "–" + fmtTime(b.ends_at) + " (+уборка " + b.cleanup_min + " мин)"],
+      ["Мастер занят", fmtTime(b.starts_at) + "–" + fmtTime(b.master_until) + " (" + b.master_min + " мин)"],
       ["Мастер", b.master_name],
-      ["Стоимость", b.price + " ₽"],
+      ["Гостей / стоимость", b.guests_count + " · " + b.price + " ₽" + (b.prepay ? " (нужна предоплата)" : "")],
       ["Статус", STATUS[b.status] + (b.status === "hold" ? " до " + fmtTime(b.hold_expires_at) : "")],
       ["Источник", b.source === "bot" ? "ассистент в MAX" : "ресепшен"],
       ["Визит", VISIT[b.visit_status]],
@@ -272,6 +273,7 @@
       h("h3", { text: "Бронь №" + b.id }),
       dl,
       h("p", { class: "muted", text: "Оплата подтверждается вручную: открытого API кассы нет." }),
+      h("button", { type: "button", text: "Карточка гостя", onclick: () => openGuest(b.guest_id) }),
       actions
     );
     drawer.hidden = false;
@@ -340,17 +342,69 @@
     const table = document.getElementById("guestsTable");
     table.innerHTML = "";
     table.append(h("tr", {}, ["Имя", "Телефон", "Карта", "Баллы", "Д. р.", "Визитов", "Последний визит", "Рассылки"].map((t) => h("th", { text: t }))));
-    data.items.forEach((g) => table.append(h("tr", {}, [
+    data.items.forEach((g) => table.append(h("tr", { onclick: () => openGuest(g.id) }, [
       g.name || "—", g.phone, g.loyalty_card || "—", g.loyalty_points, g.birth_date ? new Date(g.birth_date).toLocaleDateString("ru-RU") : "—",
       g.visits, g.last_visit ? fmtDate(g.last_visit) : "—", g.ads_ok ? "согласие есть" : "нет согласия",
     ].map((t) => h("td", { text: t })))));
   }
-  loaders.guests = loadGuests;
+  loaders.guests = async () => { await loadGuests(); loadPdLog(); };
+
+  const ACTIONS = { list_guests: "просмотр списка", view_guest: "карточка гостя", view_booking: "карточка брони", view_dialog: "диалог эскалации", export: "выгрузка данных", erase: "удаление данных", campaign: "рассылка" };
+  async function loadPdLog() {
+    const data = await api("api/admin/pd-log");
+    const table = document.getElementById("pdLog");
+    table.innerHTML = "";
+    table.append(h("tr", {}, ["Когда", "Кто", "Действие", "Гость", "Детали"].map((t) => h("th", { text: t }))));
+    data.items.slice(0, 30).forEach((l) => table.append(h("tr", {}, [fmtDate(l.created_at) + " " + fmtTime(l.created_at), l.actor, ACTIONS[l.action] || l.action, l.guest_name || (l.guest_id ? "#" + l.guest_id : "—"), l.details].map((t) => h("td", { text: t })))));
+  }
+
+  const KIND = { pd: "Обработка ПДн", rules: "Правила и противопоказания", ads: "Рекламные сообщения" };
+  async function openGuest(id) {
+    const g = await api("api/admin/guests/" + id);
+    const dl = h("dl", { class: "kv" });
+    [["Имя", g.name || "—"], ["Телефон", g.phone || "—"], ["Дата рождения", g.birth_date ? new Date(g.birth_date).toLocaleDateString("ru-RU") : "—"],
+      ["Карта лояльности", (g.loyalty_card || "—") + " · баллов: " + g.loyalty_points], ["Язык", g.lang === "en" ? "английский" : "русский"],
+      ["Рассылки", g.unsubscribed ? "отписан" : "—"]].forEach(([k, v]) => dl.append(h("dt", { text: k }), h("dd", { text: v })));
+    const consents = h("div", {}, g.consents.map((c) => h("div", { class: "consent-row" }, [
+      h("span", { class: c.granted ? "ok" : "no", text: (c.granted ? "✓ " : "✕ ") + KIND[c.kind] }),
+      " · " + fmtDate(c.created_at) + " " + fmtTime(c.created_at) + " · канал: " + c.channel + " · версия: " + c.text_version,
+    ])));
+    const visits = h("div", {}, g.bookings.slice(0, 10).map((b) => h("div", { class: "consent-row", text: fmtDate(b.starts_at) + " · " + b.program_name + " · " + b.master_name + " · " + (STATUS[b.status] || b.status) + " · " + b.price_total + " ₽" })));
+    drawer.innerHTML = "";
+    drawer.append(
+      h("button", { type: "button", class: "close", text: "✕", onclick: () => { drawer.hidden = true; } }),
+      h("h3", { text: "Гость #" + g.id }), dl,
+      h("h3", { text: "Согласия" }), consents.childNodes.length ? consents : h("p", { class: "muted", text: "Нет отметок" }),
+      h("h3", { text: "Визиты" }), visits,
+      h("div", { class: "actions" }, [
+        h("a", { class: "btnlink", href: "api/admin/guests/" + id + "/export", text: "Выгрузить данные (JSON)" }),
+        h("button", { type: "button", class: "danger", text: "Удалить данные по запросу", onclick: async () => {
+          if (!window.confirm("Удалить персональные данные гостя? Переписка будет удалена, профиль обезличен, будущие записи отменены.")) return;
+          await api("api/admin/guests/" + id + "/erase", { method: "POST" });
+          drawer.hidden = true; toast("Данные гостя удалены"); loadGuests(); loadPdLog();
+        } }),
+      ])
+    );
+    drawer.hidden = false;
+  }
   document.getElementById("guestQ").addEventListener("input", () => loadGuests());
 
   // ---------- маркетинг ----------
+  const SPACES = [["turkey", "Турция"], ["himalaya", "Гималаи"], ["india", "Индия"], ["china", "Китай"], ["japan", "Япония"], ["siberia", "Сибирь"], ["relax", "Релакс"]];
+  function renderParam(seg) {
+    const wrap = document.getElementById("segParam");
+    wrap.innerHTML = "";
+    if (!seg || !seg.param) return;
+    const input = seg.param.type === "space"
+      ? h("select", { id: "mkParam" }, SPACES.map(([v, t]) => h("option", { value: v, text: t, selected: v === seg.param.default })))
+      : h("input", { id: "mkParam", type: "number", value: seg.param.default });
+    input.addEventListener("change", () => { document.getElementById("mkSend").disabled = true; });
+    wrap.append(h("label", {}, [seg.param.label, input]));
+  }
+
   async function loadMarketing() {
     const data = await api("api/admin/marketing/segments");
+    renderParam(data.segments.find((s) => s.key === state.segment));
     const wrap = document.getElementById("segments");
     wrap.innerHTML = "";
     data.segments.forEach((s) => {
@@ -370,7 +424,11 @@
   }
   loaders.marketing = loadMarketing;
 
-  const mkBody = () => ({ segment: state.segment, template: document.getElementById("mkText").value, goal: document.getElementById("mkGoal").value, name: "Рассылка: " + state.segment });
+  const mkBody = () => {
+    const param = document.getElementById("mkParam");
+    return { segment: state.segment, template: document.getElementById("mkText").value, goal: document.getElementById("mkGoal").value,
+      name: "Рассылка: " + state.segment, param: param ? String(param.value) : null, use_ai: document.getElementById("mkAi").checked };
+  };
   document.getElementById("mkGen").onclick = async () => {
     const res = await api("api/admin/marketing/generate", { method: "POST", body: Object.assign(mkBody(), { template: "-----" }) });
     document.getElementById("mkText").value = res.template;
@@ -382,11 +440,13 @@
     list.innerHTML = "";
     if (!res.items.length) list.append(h("p", { class: "muted", text: "В сегменте нет гостей с согласием на рассылку." }));
     res.items.forEach((p) => list.append(h("div", { class: "pv" }, [h("small", { text: p.name + " · " + p.phone }), p.text])));
+    state.previewTexts = Object.fromEntries(res.items.map((p) => [p.guest_id, p.text]));
+    if (mkBody().use_ai && !res.ai) toast("Ключ ИИ не задан — показан текст по шаблону");
     document.getElementById("mkSend").disabled = !res.items.length;
   };
   document.getElementById("mkSend").onclick = async () => {
     if (!window.confirm("Отправить рассылку гостям сегмента?")) return;
-    const res = await api("api/admin/marketing/send", { method: "POST", body: mkBody() });
+    const res = await api("api/admin/marketing/send", { method: "POST", body: Object.assign(mkBody(), { texts: state.previewTexts || null }) });
     toast("Отправлено: " + res.sent + " из " + res.total);
     document.getElementById("mkSend").disabled = true;
     loadMarketing();

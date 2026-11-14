@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Код Югры — прототип</title>
+<style>
+:root{--bg:#0d1420;--card:#152033;--acc:#3ec7a6;--txt:#e8eef6;--mut:#8ea0b8}
+*{box-sizing:border-box}body{margin:0;font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--txt)}
+header{padding:18px 24px;border-bottom:1px solid #22314a;display:flex;align-items:center;gap:12px}
+header b{font-size:20px}header span{color:var(--mut)}
+main{display:grid;grid-template-columns:1fr 380px;gap:20px;padding:20px;max-width:1300px;margin:auto}
+@media(max-width:900px){main{grid-template-columns:1fr}}
+.card{background:var(--card);border-radius:16px;padding:18px}
+#log{height:60vh;overflow:auto;display:flex;flex-direction:column;gap:10px}
+.m{max-width:85%;padding:10px 14px;border-radius:14px;white-space:pre-wrap}
+.u{align-self:flex-end;background:#244b74}.a{align-self:flex-start;background:#1d2b42}
+form{display:flex;gap:8px;margin-top:12px}input{flex:1;padding:12px;border-radius:12px;border:1px solid #2c3d5a;background:#0f1828;color:var(--txt)}
+button{padding:10px 16px;border:0;border-radius:12px;background:var(--acc);color:#04241c;font-weight:600;cursor:pointer}
+.q{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}.q button{background:#22314a;color:var(--txt);font-weight:500}
+</style>
+</head>
+<body>
+<header><b id="title">Код Югры</b><span>ИИ-сервис для жителей и организаций Югры</span></header>
+<main>
+  <section class="card">
+    <div id="log"></div>
+    <div class="q" id="quick"></div>
+    <form id="f"><input id="i" placeholder="Напишите вопрос…" autocomplete="off"><button>Отправить</button></form>
+  </section>
+  <aside class="card" id="side"><h3>Панель</h3><p style="color:var(--mut)">Здесь появятся данные и аналитика по кейсу.</p></aside>
+</main>
+<script>
+const log=document.getElementById('log'),hist=[];
+function add(role,text){const d=document.createElement('div');d.className='m '+(role==='user'?'u':'a');d.textContent=text;log.appendChild(d);log.scrollTop=1e9;return d}
+async function ask(text){hist.push({role:'user',content:text});add('user',text);const w=add('assistant','…');
+ const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({history:hist})});
+ const j=await r.json();w.textContent=j.answer;hist.push({role:'assistant',content:j.answer})}
+document.getElementById('f').onsubmit=e=>{e.preventDefault();const i=document.getElementById('i');if(i.value.trim()){ask(i.value.trim());i.value=''}};
+fetch('/api/config').then(r=>r.json()).then(c=>{document.getElementById('title').textContent=c.name;add('assistant',c.welcome);
+ const q=document.getElementById('quick');c.quick.forEach(t=>{const b=document.createElement('button');b.type='button';b.textContent=t;b.onclick=()=>ask(t);q.appendChild(b)})});
+</script>
+</body>
+</html>

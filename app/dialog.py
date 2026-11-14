@@ -6,9 +6,9 @@
 медицинских решений ассистент не принимает; сложные случаи передаются администратору.
 """
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
-from . import ai, booking, config, db, escalation, guests, kb, nlu, notify
+from . import ai, booking, config, db, escalation, guests, kb, nlu, notify, staff
 from .notify import Out
 from .texts import fmt_day, fmt_time, fmt_when, t
 
@@ -85,6 +85,7 @@ def menu_row(ctx: Ctx) -> list[tuple[str, str]]:
 
 async def greet(ctx: Ctx) -> None:
     ctx.state.pop("await", None)
+    ctx.state.pop("master_id", None)
     name = ctx.guest.get("name")
     text = ctx.tr("greet_known", name=name) if name else ctx.tr("greet_new")
     if is_night():
@@ -113,7 +114,7 @@ async def p_more(ctx: Ctx, _: str) -> None:
         [(ctx.tr("btn_route"), "faq:parking"), (ctx.tr("btn_hours"), "faq:hours")],
         [(ctx.tr("btn_cert"), "faq:certificate"), (ctx.tr("btn_promo"), "faq:promo")],
         [(ctx.tr("btn_groups"), "groups"), (ctx.tr("btn_etiquette"), "faq:etiquette")],
-        [(ctx.tr("btn_payment"), "faq:payment")],
+        [(ctx.tr("btn_payment"), "faq:payment"), (ctx.tr("btn_staff"), "staff")],
         menu_row(ctx),
     ]
     ctx.say(ctx.tr("more_title"), buttons)
@@ -130,6 +131,7 @@ async def p_lang(ctx: Ctx, _: str) -> None:
 
 async def p_book(ctx: Ctx, _: str) -> None:
     ctx.state.pop("reschedule_of", None)
+    ctx.state.pop("master_id", None)
     spaces = await db.query("SELECT id, name, name_en FROM spaces ORDER BY sort")
     rows = _pairs([(_name(ctx, s), f"space:{s['id']}") for s in spaces])
     ctx.say(ctx.tr("choose_space"), rows + [[(ctx.tr("btn_couple"), "couple")], menu_row(ctx)])
@@ -196,7 +198,7 @@ async def p_days(ctx: Ctx, arg: str) -> None:
 
 
 async def show_days(ctx: Ctx, program_id: int, guests_count: int = 1, text: str | None = None) -> None:
-    days = await booking.nearest_days_with_slots(program_id, days=7)
+    days = await booking.nearest_days_with_slots(program_id, days=7, master_id=ctx.state.get("master_id"))
     if not days:
         await escalate(ctx, "no_slots", f"Нет окон на неделю, программа #{program_id}")
         return
@@ -213,7 +215,9 @@ async def show_slots(ctx: Ctx, program_id: int, day: date, around: datetime | No
     async with db.tx() as conn:
         prog = await booking.get_program(conn, program_id)
     guests_count = guests_count or booking.default_guests(prog)
-    slots = await booking.find_slots(program_id, day, around=around, limit=MAX_SLOTS, guests=guests_count)
+    slots = await booking.find_slots(
+        program_id, day, around=around, limit=MAX_SLOTS, guests=guests_count, master_id=ctx.state.get("master_id")
+    )
     if not slots:
         await show_days(ctx, program_id, guests_count, ctx.tr("no_slots_day", day=fmt_day(day, ctx.lang)))
         return
@@ -544,6 +548,37 @@ async def escalate(ctx: Ctx, reason: str, details: str = "", silent: bool = Fals
     ctx.say(ctx.tr("escalated_night" if is_night() else "escalated"), [menu_row(ctx)])
 
 
+async def p_staff(ctx: Ctx, arg: str) -> None:
+    """Кто из мастеров работает в день (по графику управляющего)."""
+    day = date.fromisoformat(arg) if arg else booking.now().date()
+    team = await staff.on_duty(day)
+    tomorrow = (day + timedelta(days=1)).isoformat()
+    if not team:
+        ctx.say(ctx.tr("staff_none", day=fmt_day(day, ctx.lang)), [[(ctx.tr("btn_tomorrow"), f"staff:{tomorrow}")], menu_row(ctx)])
+        return
+    lines = [f"• {m['name']} — {m['start']}–{m['end']} ({m['skills']})" for m in team]
+    buttons = _pairs([(ctx.tr("btn_book_master", name=m["name"]), f"master:{m['id']}") for m in team])
+    ctx.say(
+        ctx.tr("staff_title", day=fmt_day(day, ctx.lang)) + "\n" + "\n".join(lines),
+        buttons + [[(ctx.tr("btn_tomorrow"), f"staff:{tomorrow}")], menu_row(ctx)],
+    )
+
+
+async def p_master(ctx: Ctx, arg: str) -> None:
+    """Запись к конкретному мастеру: дальше окна подбираются только в его смены."""
+    master = await db.query_one("SELECT id, name FROM masters WHERE id = %s AND active", (int(arg),))
+    if not master:
+        await greet(ctx)
+        return
+    ctx.state["master_id"] = master["id"]
+    shifts = await staff.master_days(master["id"])
+    days = ", ".join(f"{fmt_day(s['day'], ctx.lang)} {s['start']}–{s['end']}" for s in shifts[:5]) or "—"
+    spaces = await db.query("SELECT id, name, name_en FROM spaces ORDER BY sort")
+    rows = _pairs([(_name(ctx, s), f"space:{s['id']}") for s in spaces])
+    text = ctx.tr("master_pick", name=master["name"]) + "\n\n" + ctx.tr("master_days", name=master["name"], days=days)
+    ctx.say(text, rows + [menu_row(ctx)])
+
+
 PAYLOAD_HANDLERS = {
     "menu": p_menu,
     "more": p_more,
@@ -572,6 +607,8 @@ PAYLOAD_HANDLERS = {
     "groups": p_groups,
     "unsub": p_unsubscribe,
     "admin": p_admin,
+    "staff": p_staff,
+    "master": p_master,
 }
 
 
@@ -619,6 +656,13 @@ async def on_text(ctx: Ctx, text: str) -> None:
         return
     if await on_awaited(ctx, text):
         return
+    masters = await db.query("SELECT id, name FROM masters WHERE active")
+    named = nlu.match_master(text, masters)
+    if named:
+        ctx.state["master_id"] = named
+        if not (parsed.program_id or parsed.intent == "staff"):
+            await p_master(ctx, str(named))
+            return
     if ai.enabled() and await ai.agent_reply(ctx, text):
         ctx.state["misunderstood"] = 0
         return
@@ -655,6 +699,7 @@ INTENT_TO_PAYLOAD = {
     "programs": "prices",
     "book": "book",
     "greeting": "menu",
+    "staff": "staff",
 }
 
 
@@ -676,6 +721,9 @@ async def rule_reply(ctx: Ctx, parsed: nlu.Parsed, text: str) -> None:
         space = await db.query_one("SELECT id FROM spaces WHERE code = %s", (parsed.space_code,))
         ctx.state["misunderstood"] = 0
         await p_space(ctx, str(space["id"]))
+        return
+    if parsed.intent == "staff":
+        await p_staff(ctx, (parsed.day or booking.now().date()).isoformat())
         return
     if parsed.intent:
         await on_payload(ctx, INTENT_TO_PAYLOAD[parsed.intent])

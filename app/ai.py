@@ -11,7 +11,7 @@ from datetime import date, datetime
 import anthropic
 import httpx
 
-from . import config, db, gigachat, kb, openai_compat
+from . import config, db, gigachat, kb, openai_compat, staff
 from .notify import Out
 from .texts import fmt_when
 
@@ -30,6 +30,7 @@ TOOLS = [
                 "date": {"type": "string", "description": "YYYY-MM-DD"},
                 "time": {"type": "string", "description": "Желаемое время HH:MM, если гость его назвал"},
                 "guests": {"type": "integer", "description": "1 или 2 гостя"},
+                "master_id": {"type": "integer", "description": "Мастер, если гость хочет к конкретному (из master_schedule)"},
             },
             "required": ["program_id", "date"],
         },
@@ -52,6 +53,15 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {"space_id": {"type": "integer"}, "program_id": {"type": "integer"}},
+        },
+    },
+    {
+        "name": "master_schedule",
+        "description": "Кто из мастеров работает в указанный день по графику (имена, часы смен). Показывает гостю кнопки записи к мастеру.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"date": {"type": "string", "description": "YYYY-MM-DD"}},
+            "required": ["date"],
         },
     },
     {
@@ -175,6 +185,8 @@ async def _dispatch_tool(ctx, name: str, args: dict) -> str:
         if clock:
             around = datetime.combine(day, datetime.min.time(), tzinfo=config.TZ).replace(hour=clock[0], minute=clock[1])
         guests_count = 2 if str(args.get("guests", "1")) == "2" else None
+        if args.get("master_id"):
+            ctx.state["master_id"] = int(args["master_id"])
         await dialog.show_slots(ctx, int(args["program_id"]), day, around=around, guests_count=guests_count)
         return "Гостю показаны кнопки свободного времени (или другие дни, если этот занят)."
     if name == "hold_slot":
@@ -189,6 +201,11 @@ async def _dispatch_tool(ctx, name: str, args: dict) -> str:
         else:
             await dialog.p_book(ctx, "")
         return "Показано."
+    if name == "master_schedule":
+        day = str(args.get("date") or "")
+        await dialog.p_staff(ctx, day)
+        team = await staff.on_duty(date.fromisoformat(day)) if day else []
+        return "; ".join(f"{m['name']} (id {m['id']}) {m['start']}–{m['end']}" for m in team) or "В этот день никто не работает."
     if name == "my_bookings":
         await dialog.p_my(ctx, "")
         return "Показано."

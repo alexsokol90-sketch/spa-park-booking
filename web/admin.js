@@ -479,6 +479,7 @@
       if (e.data === "grid") loadGrid();
       if (e.data === "escalations") loadEsc();
       if (e.data === "admin_feed") loadFeed();
+      if (loaders[e.data] && document.getElementById("tab-" + e.data) && document.getElementById("tab-" + e.data).classList.contains("active")) loaders[e.data]();
     });
     es.onopen = () => { live.textContent = "● онлайн"; live.classList.remove("off"); };
     es.onerror = () => { live.textContent = "● переподключение"; live.classList.add("off"); };
@@ -496,5 +497,6 @@
     setInterval(() => { if (state.grid) renderGrid(); }, 15000); // обратный отсчёт и линия «сейчас»
   }
 
+  window.SPA = { h: h, api: api, toast: toast, fmtDate: fmtDate, fmtTime: fmtTime, loaders: loaders, todayStr: todayStr };
   init();
 })();

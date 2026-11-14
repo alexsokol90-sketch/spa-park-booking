@@ -100,3 +100,22 @@ button:disabled { opacity: .5; cursor: default; }
 .consent-row .ok { color: var(--accent); font-weight: 600; }
 .consent-row .no { color: var(--danger); font-weight: 600; }
 .btnlink { border: 1px solid var(--line); background: #fff; padding: 7px 12px; border-radius: 8px; color: var(--ink); text-decoration: none; font-size: 14px; }
+.lg.off { background: #f3f0ea; border: 1px dashed #d6cfc3; }
+.schedule th, .schedule td { text-align: center; white-space: nowrap; padding: 6px; }
+.schedule th:first-child, .schedule td:first-child { text-align: left; position: sticky; left: 0; background: #fff; z-index: 1; }
+.schedule th.weekend { color: var(--danger); }
+.schedule th.today, .schedule td.today { box-shadow: inset 0 0 0 2px var(--accent); }
+.shift { cursor: pointer; border-radius: 8px; padding: 6px 4px; font-size: 12px; min-width: 64px; }
+.shift.on { background: #dfeadf; border: 1px solid var(--accent); }
+.shift.off { background: #f7f5f0; color: var(--muted); border: 1px dashed #d6cfc3; }
+.shift small { display: block; color: var(--muted); font-size: 10px; }
+.pattern { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
+.pattern label { display: flex; flex-direction: column; font-size: 12px; color: var(--muted); gap: 4px; }
+.pattern input, .pattern select, .who { padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; font: inherit; }
+.progress { height: 6px; background: #eee; border-radius: 3px; overflow: hidden; margin: 8px 0 10px; }
+.progress div { height: 100%; background: var(--accent); }
+.cl-item { display: flex; gap: 10px; align-items: flex-start; padding: 6px 0; border-bottom: 1px solid var(--line); cursor: pointer; font-size: 14px; }
+.cl-item input { margin-top: 3px; width: 16px; height: 16px; accent-color: var(--accent); }
+.cl-item.done span { color: var(--muted); text-decoration: line-through; }
+.cl-item small { display: block; color: var(--muted); font-size: 11px; text-decoration: none; }
+.card.complete { border-color: var(--accent); }

@@ -106,8 +106,29 @@ def _candidate_starts(day: date, duration: int) -> list[datetime]:
     return out
 
 
-def _pick_master(start: datetime, end: datetime, masters: list[dict], busy: dict[int, list]) -> dict | None:
-    free = [m for m in masters if not _overlaps(start, end, busy.get(m["id"], []))]
+async def _shifts(conn, day: date) -> dict[int, tuple[datetime, datetime]]:
+    """Смены мастеров на день: master_id → (начало, конец)."""
+    rows = await db.fetch(conn, "SELECT master_id, start_min, end_min FROM master_shifts WHERE day = %s", (day,))
+    midnight = datetime(day.year, day.month, day.day, tzinfo=config.TZ)
+    return {
+        r["master_id"]: (midnight + timedelta(minutes=r["start_min"]), midnight + timedelta(minutes=r["end_min"]))
+        for r in rows
+    }
+
+
+def _on_shift(master_id: int, start: datetime, end: datetime, shifts: dict[int, tuple[datetime, datetime]]) -> bool:
+    shift = shifts.get(master_id)
+    return bool(shift) and shift[0] <= start and end <= shift[1]
+
+
+def _pick_master(
+    start: datetime, end: datetime, masters: list[dict], busy: dict[int, list], shifts: dict[int, tuple[datetime, datetime]]
+) -> dict | None:
+    """Свободный мастер в смене; при равенстве — менее загруженный."""
+    free = [
+        m for m in masters
+        if _on_shift(m["id"], start, end, shifts) and not _overlaps(start, end, busy.get(m["id"], []))
+    ]
     if not free:
         return None
     return min(free, key=lambda m: len(busy.get(m["id"], [])))
@@ -128,10 +149,13 @@ def default_guests(prog: dict) -> int:
     return 1 if prog["price"] is not None else 2
 
 
-async def free_slots(conn, program_id: int, day: date, guests: int = 1) -> list[Slot]:
+async def free_slots(conn, program_id: int, day: date, guests: int = 1, master_id: int | None = None) -> list[Slot]:
     prog = await get_program(conn, program_id)
     space_busy, master_busy = await _busy(conn, day)
+    shifts = await _shifts(conn, day)
     masters = await db.fetch(conn, "SELECT id, name FROM masters WHERE active ORDER BY id")
+    if master_id:
+        masters = [m for m in masters if m["id"] == master_id]
     dur = timedelta(minutes=prog["duration_min"])
     master_dur = timedelta(minutes=prog["master_min"])
     cleanup = timedelta(minutes=prog["cleanup_min"])
@@ -139,7 +163,7 @@ async def free_slots(conn, program_id: int, day: date, guests: int = 1) -> list[
     for start in _candidate_starts(day, prog["duration_min"]):
         if _overlaps(start, start + dur + cleanup, space_busy.get(prog["space_id"], [])):
             continue
-        master = _pick_master(start, start + master_dur, masters, master_busy)
+        master = _pick_master(start, start + master_dur, masters, master_busy, shifts)
         if master:
             result.append(Slot(program_id, start, master["id"], master["name"], guests))
     return result
@@ -151,24 +175,24 @@ async def free_slots_public(program_id: int, day: date) -> list[Slot]:
 
 
 async def find_slots(
-    program_id: int, day: date, around: datetime | None = None, limit: int = 5, guests: int = 1
+    program_id: int, day: date, around: datetime | None = None, limit: int = 5, guests: int = 1, master_id: int | None = None
 ) -> list[Slot]:
-    """Реальные свободные окна. around — желаемое время: берутся ближайшие к нему."""
+    """Реальные свободные окна. around — желаемое время: берутся ближайшие к нему; master_id — к конкретному мастеру."""
     async with db.tx() as conn:
-        slots = await free_slots(conn, program_id, day, guests)
+        slots = await free_slots(conn, program_id, day, guests, master_id)
     if around:
         slots = sorted(slots, key=lambda s: abs((s.start - around).total_seconds()))[:limit]
         return sorted(slots, key=lambda s: s.start)
     return _spread(slots, limit)
 
 
-async def nearest_days_with_slots(program_id: int, days: int = 7) -> list[date]:
+async def nearest_days_with_slots(program_id: int, days: int = 7, master_id: int | None = None) -> list[date]:
     today = now().date()
     out = []
     async with db.tx() as conn:
         for i in range(days):
             day = today + timedelta(days=i)
-            if await free_slots(conn, program_id, day):
+            if await free_slots(conn, program_id, day, master_id=master_id):
                 out.append(day)
     return out
 
@@ -209,13 +233,20 @@ async def create_hold(
 
 
 async def _free_master_id(conn, start: datetime, end: datetime) -> int:
+    """Первый свободный мастер, чья смена целиком покрывает работу по программе."""
+    local = start.astimezone(config.TZ)
+    midnight = local.replace(hour=0, minute=0, second=0, microsecond=0)
+    start_min = int((local - midnight).total_seconds() // 60)
+    end_min = int((end.astimezone(config.TZ) - midnight).total_seconds() // 60)
     row = await db.fetchone(
         conn,
-        """SELECT m.id FROM masters m WHERE m.active AND NOT EXISTS (
+        """SELECT m.id FROM masters m
+           JOIN master_shifts s ON s.master_id = m.id AND s.day = %s AND s.start_min <= %s AND s.end_min >= %s
+           WHERE m.active AND NOT EXISTS (
                SELECT 1 FROM bookings b WHERE b.master_id = m.id AND b.status IN ('hold', 'confirmed')
                  AND tstzrange(b.starts_at, b.master_until) && tstzrange(%s, %s))
            ORDER BY m.id LIMIT 1""",
-        (start, end),
+        (local.date(), start_min, end_min, start, end),
     )
     if not row:
         raise SlotTaken

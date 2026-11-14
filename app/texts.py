@@ -228,6 +228,13 @@ T = {
     "btn_unsubscribe": {"ru": "Отписаться", "en": "Unsubscribe"},
     "review_thanks": {"ru": "Спасибо за отзыв! Передам команде.", "en": "Thank you for your feedback! I'll pass it on to the team."},
     "by_tag_title": {"ru": "Вот что у нас есть:", "en": "Here is what we have:"},
+    "btn_staff": {"ru": "Наши мастера", "en": "Our therapists"},
+    "staff_title": {"ru": "Мастера на {day}:", "en": "Therapists on {day}:"},
+    "staff_none": {"ru": "На {day} график ещё не составлен. Подскажу другой день?", "en": "The schedule for {day} is not ready yet. Shall I check another day?"},
+    "btn_book_master": {"ru": "Записаться к: {name}", "en": "Book with {name}"},
+    "btn_tomorrow": {"ru": "Следующий день", "en": "Next day"},
+    "master_pick": {"ru": "Записываю к мастеру {name}. Выберите пространство и программу — покажу время в смены мастера.", "en": "Booking with {name}. Choose a space and a program — I'll show times within their shifts."},
+    "master_days": {"ru": "{name} работает: {days}", "en": "{name} works: {days}"},
     "lang_set": {"ru": "Хорошо, продолжаем на русском.", "en": "Sure, let's continue in English."},
 }
 

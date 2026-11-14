@@ -212,3 +212,38 @@ CREATE TABLE IF NOT EXISTS settings (
     key   text PRIMARY KEY,
     value text NOT NULL
 );
+
+-- График мастеров: смена на день в минутах от полуночи (1440 = 24:00).
+-- Ассистент и ресепшен подбирают окна только среди мастеров, стоящих в смене.
+CREATE TABLE IF NOT EXISTS master_shifts (
+    master_id int NOT NULL REFERENCES masters(id),
+    day       date NOT NULL,
+    start_min int NOT NULL CHECK (start_min BETWEEN 0 AND 1439),
+    end_min   int NOT NULL CHECK (end_min BETWEEN 1 AND 1440),
+    note      text NOT NULL DEFAULT '',
+    PRIMARY KEY (master_id, day),
+    CHECK (end_min > start_min)
+);
+
+-- Чек-листы: шаблоны и выполнения (открытие/закрытие смены, подготовка пространства к брони).
+CREATE TABLE IF NOT EXISTS checklist_templates (
+    id     serial PRIMARY KEY,
+    code   text UNIQUE NOT NULL,
+    title  text NOT NULL,
+    kind   text NOT NULL CHECK (kind IN ('opening', 'closing', 'space', 'custom')),
+    items  jsonb NOT NULL,
+    active boolean NOT NULL DEFAULT true
+);
+
+CREATE TABLE IF NOT EXISTS checklist_runs (
+    id           serial PRIMARY KEY,
+    template_id  int NOT NULL REFERENCES checklist_templates(id),
+    day          date NOT NULL,
+    booking_id   int REFERENCES bookings(id) ON DELETE CASCADE,
+    title        text NOT NULL,
+    items        jsonb NOT NULL,
+    done         jsonb NOT NULL DEFAULT '{}'::jsonb,
+    completed_at timestamptz,
+    created_at   timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS checklist_runs_once ON checklist_runs (template_id, day, COALESCE(booking_id, 0));

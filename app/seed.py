@@ -7,6 +7,7 @@
 Запуск: python -m app.seed [--reset]
 """
 import asyncio
+import json
 import random
 import sys
 from datetime import date, datetime, timedelta
@@ -135,6 +136,41 @@ PREORDER_ITEMS = [
     ("Свежевыжатый сок", "Fresh juice", "extra", 450, 20),
 ]
 
+# График (демо): (мастер по порядку, правило дня, начало, конец). Каждый день закрыт 10:00–24:00.
+SHIFT_RULES = [
+    (1, lambda i, d: i % 4 in (0, 1), 600, 1320),     # Анна, 2/2, 10–22
+    (2, lambda i, d: i % 4 in (2, 3), 600, 1320),     # Айгуль, 2/2, 10–22
+    (3, lambda i, d: d.weekday() < 5, 720, 1440),      # Виктория, 5/2 (пн–пт), 12–24
+    (4, lambda i, d: i % 4 in (0, 1), 840, 1440),     # Ольга, 2/2, 14–24
+    (5, lambda i, d: i % 4 in (2, 3), 840, 1440),     # Сергей, 2/2, 14–24
+    (6, lambda i, d: d.weekday() >= 4 or d.weekday() == 1, 600, 1440),  # Дмитрий, вт и пт–вс, 10–24
+]
+
+CHECKLISTS = [
+    ("opening", "Открытие смены", "opening", [
+        "Проверить температуру хаммамов и саун",
+        "Включить подогрев купелей, офуро и кедровых бочек",
+        "Проверить запас полотенец, халатов и тапочек",
+        "Заварить чай и подготовить предзаказы дня (вкладка «Расход на день»)",
+        "Проверить сетку на день и неподтверждённые визиты",
+        "Включить музыку и ароматизацию в пространствах",
+    ]),
+    ("space", "Подготовка", "space", [
+        "Уборка и дезинфекция после предыдущего гостя",
+        "Свежее бельё, полотенца, халаты",
+        "Вода и нагрев готовы к началу программы",
+        "Предзаказ гостя подготовлен: {preorders}",
+        "Мастер {master} предупреждён о госте",
+    ]),
+    ("closing", "Закрытие смены", "closing", [
+        "Выключить нагрев, закрыть все пространства",
+        "Сдать бельё в прачечную",
+        "Сверить оплаты дня с кассой",
+        "Отметить по всем броням: пришёл / не пришёл",
+        "Записать остатки чая и добавок",
+    ]),
+]
+
 DEMO_GUESTS = [
     ("+79000000001", "Елена", date(1990, 11, 14)),
     ("+79000000002", "Ирина", date(1985, 11, 17)),
@@ -188,6 +224,29 @@ async def _insert_catalog(conn) -> None:
     )
 
 
+def _on_shift(master_no: int, day: date, start_min: int, end_min: int) -> bool:
+    i = (day - datetime.now(config.TZ).date()).days + 1
+    rule = SHIFT_RULES[master_no - 1]
+    return rule[1](i, day) and rule[2] <= start_min and end_min <= rule[3]
+
+
+async def _insert_staff(conn) -> None:
+    today = datetime.now(config.TZ).date()
+    for offset in range(-1, 30):
+        day = today + timedelta(days=offset)
+        for master_no, rule, start_min, end_min in SHIFT_RULES:
+            if rule(offset + 1, day):
+                await conn.execute(
+                    "INSERT INTO master_shifts (master_id, day, start_min, end_min) VALUES (%s, %s, %s, %s)",
+                    (master_no, day, start_min, end_min),
+                )
+    for code, title, kind, items in CHECKLISTS:
+        await conn.execute(
+            "INSERT INTO checklist_templates (code, title, kind, items) VALUES (%s, %s, %s, %s)",
+            (code, title, kind, json.dumps(items, ensure_ascii=False)),
+        )
+
+
 async def _insert_guests(conn) -> None:
     for n, (phone, name, birth) in enumerate(DEMO_GUESTS, start=1):
         row = await db.fetchone(
@@ -220,6 +279,14 @@ async def _book(conn, guest_id: int, prog: dict, master_id: int, start: datetime
     )
 
 
+def _free_master(day: date, start_min: int, end_min: int, taken: list[tuple[int, int, int]]) -> int:
+    for master_no in range(1, len(SHIFT_RULES) + 1):
+        busy = any(m == master_no and start_min < e and s < end_min for m, s, e in taken)
+        if not busy and _on_shift(master_no, day, start_min, end_min):
+            return master_no
+    raise RuntimeError(f"Нет мастера в смене: {day} {start_min}")
+
+
 async def _insert_bookings(conn) -> None:
     progs = {p["code"]: p for p in await db.fetch(conn, "SELECT * FROM programs")}
     guests = [g["id"] for g in await db.fetch(conn, "SELECT id FROM guests ORDER BY id")]
@@ -233,11 +300,15 @@ async def _insert_bookings(conn) -> None:
         await _book(conn, gid, progs[code], (i % 6) + 1, _local(day, 12 + i % 8), "completed")
     plan_today = [("in-oriental", 0, 14), ("sb-cedar", 1, 16), ("rl-back", 2, 12), ("jp-sunrise", 3, 18), ("hm-steam", 4, 19)]
     plan_tomorrow = [("cn-water", 5, 13), ("hm-reboot", 6, 15), ("jp-sakura", 7, 17), ("in-wind", 8, 20)]
-    for n, (code, gi, hour) in enumerate(plan_today):
-        await _book(conn, guests[gi], progs[code], n % 6 + 1, _local(today, hour), "confirmed", "confirmed")
     tomorrow = today + timedelta(days=1)
-    for n, (code, gi, hour) in enumerate(plan_tomorrow):
-        await _book(conn, guests[gi], progs[code], (n + 2) % 6 + 1, _local(tomorrow, hour), "confirmed")
+    for day, plan, visit in ((today, plan_today, "confirmed"), (tomorrow, plan_tomorrow, "none")):
+        taken: list[tuple[int, int, int]] = []
+        for code, gi, hour in plan:
+            prog = progs[code]
+            start_min, end_min = hour * 60, hour * 60 + prog["master_min"]
+            master = _free_master(day, start_min, end_min, taken)
+            taken.append((master, start_min, end_min))
+            await _book(conn, guests[gi], prog, master, _local(day, hour), "confirmed", visit)
 
 
 async def seed(reset: bool = False) -> None:
@@ -254,6 +325,7 @@ async def seed(reset: bool = False) -> None:
                 print("Каталог уже заполнен, пропускаю (используйте --reset)")
                 return
             await _insert_catalog(conn)
+            await _insert_staff(conn)
             await _insert_guests(conn)
             await _insert_bookings(conn)
         print("Демо-данные загружены")

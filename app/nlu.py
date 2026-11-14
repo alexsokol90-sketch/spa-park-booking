@@ -17,6 +17,7 @@ ESCALATION_PATTERNS = [
 ]
 
 INTENT_PATTERNS = [
+    ("staff", r"кто (из мастеров )?работа|какие мастера|график мастер|мастер\w* (сегодня|завтра)|расписание мастер|who.{0,10}working|therapists"),
     ("cancel", r"отмен|cancel"),
     ("reschedule", r"перенес|перенос|другое время|resched"),
     ("my", r"мои запис|моя запис|когда я записан|my booking"),
@@ -136,6 +137,17 @@ def match_space(text: str) -> str | None:
     for code, keys in SPACE_STEMS.items():
         if any(s.startswith(k[:5]) or k.startswith(s) for s in stems for k in keys):
             return code
+    return None
+
+
+def match_master(text: str, masters: list[dict]) -> int | None:
+    """Мастер, названный по имени («хочу к Анне», «Сергей завтра свободен?»)."""
+    words = re.findall(r"[a-zа-яё]+", text.lower())
+    for master in masters:
+        name = master["name"].lower()
+        stem = name[:4] if len(name) > 4 else name[:3]
+        if any(w.startswith(stem) for w in words):
+            return master["id"]
     return None
 
 

@@ -27,6 +27,7 @@ from . import (
     notify,
     privacy,
     scheduler,
+    staff,
     tg_bot,
     vk_bot,
 )
@@ -379,6 +380,72 @@ async def mk_send(inp: CampaignIn):
 async def mk_generate(inp: CampaignIn):
     _check_segment(inp.segment)
     return {"template": await marketing.generate_template(inp.segment, inp.goal), "ai": ai.enabled()}
+
+
+# ---------- график мастеров ----------
+
+@app.get("/api/admin/schedule", dependencies=ADMIN)
+async def admin_schedule(start: date | None = None, days: int = 14):
+    return await staff.schedule(start or booking.now().date(), max(1, min(days, 31)))
+
+
+class ShiftIn(BaseModel):
+    master_id: int
+    day: date
+    start: str | None = Field(default=None, pattern=r"^\d{2}:\d{2}$")
+    end: str | None = Field(default=None, pattern=r"^\d{2}:\d{2}$")
+    note: str = Field(default="", max_length=100)
+
+
+def _conflict_view(rows: list[dict]) -> list[dict]:
+    return [{"id": r["id"], "starts_at": r["starts_at"], "program_name": r["program_name"], "guest_name": r["guest_name"]} for r in rows]
+
+
+@app.put("/api/admin/schedule", dependencies=ADMIN)
+async def admin_set_shift(inp: ShiftIn):
+    try:
+        found = await staff.set_shift(inp.master_id, inp.day, inp.start, inp.end, inp.note)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True, "conflicts": _conflict_view(found)}
+
+
+class PatternIn(BaseModel):
+    master_id: int
+    first_day: date
+    days: int = Field(default=14, ge=1, le=62)
+    pattern: str = Field(pattern=r"^(2/2|5/2|3/1|1/1)$")
+    start: str = Field(pattern=r"^\d{2}:\d{2}$")
+    end: str = Field(pattern=r"^\d{2}:\d{2}$")
+
+
+@app.post("/api/admin/schedule/pattern", dependencies=ADMIN)
+async def admin_shift_pattern(inp: PatternIn):
+    try:
+        changed = await staff.apply_pattern(inp.master_id, inp.first_day, inp.days, inp.pattern, inp.start, inp.end)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True, "changed": changed}
+
+
+# ---------- чек-листы ----------
+
+@app.get("/api/admin/checklists", dependencies=ADMIN)
+async def admin_checklists(day: date | None = None):
+    return {"items": await staff.checklists(day or booking.now().date())}
+
+
+class ToggleIn(BaseModel):
+    index: int = Field(ge=0)
+    who: str = Field(default="администратор", max_length=40)
+
+
+@app.post("/api/admin/checklists/{run_id}/toggle", dependencies=ADMIN)
+async def admin_checklist_toggle(run_id: int, inp: ToggleIn):
+    try:
+        return await staff.toggle(run_id, inp.index, inp.who)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
 
 
 @app.post("/api/admin/jobs/{name}", dependencies=ADMIN)

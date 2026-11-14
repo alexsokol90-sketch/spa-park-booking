@@ -90,3 +90,31 @@ def test_confirm_expired_hold_fails():
         return True
 
     assert asyncio.run(_with_pool(scenario))
+
+
+def test_slots_respect_master_schedule():
+    """Окна предлагаются только в смену мастера: смена 10:00–12:00 → начало не позже 11:30."""
+    async def scenario():
+        day = booking.now().date() + timedelta(days=8)
+        saved = await db.query("SELECT * FROM master_shifts WHERE day = %s", (day,))
+        prog = await db.query_one("SELECT id FROM programs WHERE code = 'rl-head'")
+        try:
+            await db.query("DELETE FROM master_shifts WHERE day = %s RETURNING master_id", (day,))
+            await db.query(
+                "INSERT INTO master_shifts (master_id, day, start_min, end_min) VALUES (1, %s, 600, 720) RETURNING master_id",
+                (day,),
+            )
+            slots = await booking.free_slots_public(prog["id"], day)
+            return [(s.start.hour, s.start.minute, s.master_id) for s in slots]
+        finally:
+            await db.query("DELETE FROM master_shifts WHERE day = %s RETURNING master_id", (day,))
+            for s in saved:
+                await db.query(
+                    "INSERT INTO master_shifts (master_id, day, start_min, end_min, note) VALUES (%s,%s,%s,%s,%s) RETURNING master_id",
+                    (s["master_id"], s["day"], s["start_min"], s["end_min"], s["note"]),
+                )
+
+    slots = asyncio.run(_with_pool(scenario))
+    assert slots, "должны быть окна в смену"
+    assert all(master == 1 for _, _, master in slots)
+    assert all(h * 60 + m + 30 <= 720 for h, m, _ in slots)

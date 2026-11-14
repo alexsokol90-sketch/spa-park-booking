@@ -10,14 +10,21 @@
 <header class="top">
   <div class="brand">СПА-парк <span>ресепшен</span></div>
   <nav class="tabs" id="tabs">
+    <span class="tab-group">Операции</span>
     <button type="button" data-tab="grid" class="active">Сетка</button>
     <button type="button" data-tab="esc">Запросы <b id="escCount" class="badge" hidden></b></button>
     <button type="button" data-tab="calls">Обзвон</button>
-    <button type="button" data-tab="guests">Гости</button>
-    <button type="button" data-tab="marketing">Маркетинг</button>
-    <button type="button" data-tab="stock">Расход на день</button>
-    <button type="button" data-tab="schedule">График мастеров</button>
+    <button type="button" data-tab="stock">Расход</button>
+    <button type="button" data-tab="schedule">График</button>
     <button type="button" data-tab="checklists">Чек-листы</button>
+    <button type="button" data-tab="certs">Сертификаты</button>
+    <span class="tab-group">Клиенты</span>
+    <button type="button" data-tab="clients">Клиенты</button>
+    <button type="button" data-tab="campaigns">Рассылки</button>
+    <button type="button" data-tab="autos">Автоматизации</button>
+    <button type="button" data-tab="guests">Гости и ПДн</button>
+    <span class="tab-group">Настройки</span>
+    <button type="button" data-tab="employees">Сотрудники</button>
   </nav>
   <div class="live" id="live" title="Обновление сетки">● онлайн</div>
 </header>
@@ -59,6 +66,101 @@
     <table class="table clickable" id="guestsTable"></table>
     <h3>Журнал доступа к персональным данным</h3>
     <table class="table" id="pdLog"></table>
+  </section>
+
+  <section id="tab-clients" class="tab">
+    <div class="toolbar">
+      <h2 class="inline">Клиенты</h2>
+      <div class="chips" id="cliPeriod">
+        <button type="button" class="chip active" data-p="all">За всё время</button>
+      </div>
+      <label class="muted">с <input type="date" id="cliFrom"></label>
+      <label class="muted">по <input type="date" id="cliTo"></label>
+      <button type="button" id="cliApply">Показать</button>
+    </div>
+    <div class="kpis" id="cliKpis"></div>
+    <div class="charts">
+      <div class="chart-card wide"><h3>Пол и возраст, % клиентов</h3><div id="chAgeGender"></div></div>
+      <div class="chart-card"><h3>Соотношение полов</h3><div id="chGender"></div></div>
+      <div class="chart-card wide"><h3>Выручка клиентов по возрасту, ₽</h3><div id="chRevenue"></div></div>
+      <div class="chart-card"><h3>Возраст, количество клиентов</h3><div id="chAge"></div></div>
+      <div class="chart-card"><h3>Доля мессенджеров</h3><div id="chChannels"></div></div>
+      <div class="chart-card"><h3>Источники регистрации</h3><div id="chSources"></div></div>
+    </div>
+    <h3>Бонусы</h3><div class="kpis" id="cliBonus"></div>
+    <h3>Реферальная программа</h3><div class="kpis" id="cliRef"></div>
+    <h3>Эффективность программы лояльности</h3><div class="kpis" id="cliEff"></div>
+    <h3>Список клиентов</h3>
+    <div id="cliFilters" class="filters"></div>
+    <div class="row-actions"><button type="button" id="cliAddFilter">+ Условие</button><button type="button" class="primary" id="cliSearch">Найти</button><span class="muted" id="cliCount"></span></div>
+    <div class="grid-wrap"><table class="table clickable" id="cliTable"></table></div>
+  </section>
+
+  <section id="tab-campaigns" class="tab">
+    <h2>Рассылки</h2>
+    <div class="mk">
+      <div class="mk-left">
+        <label>Название<input id="cmpName" value="Рассылка"></label>
+        <h3>Кому: фильтр клиентов</h3>
+        <div id="cmpFilters" class="filters"></div>
+        <div class="row-actions"><button type="button" id="cmpAddFilter">+ Условие</button></div>
+        <label>Текст рассылки<textarea id="cmpText" rows="5">{name}, у вас {bonuses} бонусов в СПА-парке. Приходите отдохнуть — я помогу подобрать время.</textarea></label>
+        <div class="vars" id="cmpVars"></div>
+        <h3>Кнопки</h3>
+        <div id="cmpButtons"></div>
+        <div class="row-actions"><button type="button" id="cmpAddBtn">+ Кнопка</button></div>
+        <label>Отправить позже (необязательно)<input type="datetime-local" id="cmpWhen"></label>
+        <div class="row-actions">
+          <button type="button" id="cmpPreview">Предпросмотр</button>
+          <button type="button" class="primary" id="cmpSend" disabled>Отправить</button>
+          <span class="muted" id="cmpCount"></span>
+        </div>
+      </div>
+      <div class="mk-right">
+        <h3>Предпросмотр</h3>
+        <div id="cmpPreviewList" class="preview"></div>
+        <h3>История рассылок</h3>
+        <table class="table" id="cmpHistory"></table>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-autos" class="tab">
+    <h2>Автоматизации маркетинга</h2>
+    <p class="muted">Событие → условия → действие. Каждому гостю срабатывает один раз на событие; рекламные сообщения — только при согласии на рассылку. Запускаются ежедневно в 11:00.</p>
+    <div class="row-actions"><button type="button" class="primary" id="autoNew">+ Новая автоматизация</button><button type="button" id="autoRun">Запустить сейчас</button></div>
+    <div class="cards" id="autoList"></div>
+  </section>
+
+  <section id="tab-certs" class="tab">
+    <h2>Подарочные сертификаты</h2>
+    <div class="kpis" id="certKpis"></div>
+    <div class="mk">
+      <div class="mk-left">
+        <h3>Проверить и погасить</h3>
+        <div class="row-actions"><input id="certNumber" placeholder="Номер сертификата, напр. SP-20260004" class="search"><button type="button" class="primary" id="certCheck">Проверить</button></div>
+        <div id="certCard"></div>
+        <h3>Продать новый</h3>
+        <div class="pattern">
+          <label>Номер<input id="cnNumber" placeholder="SP-20260011"></label>
+          <label>Номинал, ₽<input id="cnAmount" type="number" value="5000"></label>
+          <label>Программа (если на программу)<input id="cnProgram"></label>
+          <label>Покупатель<input id="cnBuyer"></label>
+          <label>Телефон<input id="cnPhone"></label>
+          <label>Кому дарят<input id="cnOwner"></label>
+          <label>Срок, дней<input id="cnDays" type="number" value="180"></label>
+          <button type="button" class="primary" id="cnIssue">Оформить продажу</button>
+        </div>
+      </div>
+      <div class="mk-right"><h3>Все сертификаты</h3><table class="table clickable" id="certTable"></table></div>
+    </div>
+  </section>
+
+  <section id="tab-employees" class="tab">
+    <h2>Сотрудники и доступ</h2>
+    <p class="muted">Управляющий и администратор видят весь кабинет; мастер — сетку, свой график и чек-листы; клининг — только чек-листы уборки. Вход — логин и PIN-код. Мастер, добавленный здесь, сразу появляется в графике и в подборе окон ассистентом.</p>
+    <div class="row-actions"><button type="button" class="primary" id="empNew">+ Добавить сотрудника</button></div>
+    <table class="table" id="empTable"></table>
   </section>
 
   <section id="tab-marketing" class="tab">
@@ -143,5 +245,6 @@
 <div id="toasts" class="toasts"></div>
 <script src="static/admin.js"></script>
 <script src="static/admin-staff.js"></script>
+<script src="static/admin-crm.js"></script>
 </body>
 </html>

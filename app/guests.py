@@ -31,15 +31,17 @@ async def by_channel(user_id: int, name: str | None = None, chat_id: int | None 
             return guest
         return await db.fetchone(
             conn,
-            "INSERT INTO guests (max_user_id, max_chat_id, name) VALUES (%s, %s, %s) RETURNING *",
-            (user_id, chat_id, name),
+            "INSERT INTO guests (max_user_id, max_chat_id, name, reg_channel) VALUES (%s, %s, %s, %s) RETURNING *",
+            (user_id, chat_id, name, "web" if user_id < 0 else "max"),
         )
 
 
 # Канал → колонка с идентификатором (только константы: имя колонки не приходит извне).
 EXTERNAL_LOOKUP = {
-    "tg": ("SELECT * FROM guests WHERE tg_chat_id = %s", "INSERT INTO guests (tg_chat_id, name) VALUES (%s, %s) RETURNING *"),
-    "vk": ("SELECT * FROM guests WHERE vk_user_id = %s", "INSERT INTO guests (vk_user_id, name) VALUES (%s, %s) RETURNING *"),
+    "tg": ("SELECT * FROM guests WHERE tg_chat_id = %s",
+           "INSERT INTO guests (tg_chat_id, name, reg_channel) VALUES (%s, %s, 'tg') RETURNING *"),
+    "vk": ("SELECT * FROM guests WHERE vk_user_id = %s",
+           "INSERT INTO guests (vk_user_id, name, reg_channel) VALUES (%s, %s, 'vk') RETURNING *"),
 }
 
 

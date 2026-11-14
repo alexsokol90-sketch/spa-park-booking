@@ -11,7 +11,8 @@ async def audit(actor: str, action: str, guest_id: int | None = None, details: s
 
 async def guest_card(guest_id: int) -> dict | None:
     guest = await db.query_one(
-        """SELECT id, name, phone, birth_date, loyalty_card, loyalty_points, lang, unsubscribed, deleted_at, created_at
+        """SELECT id, name, surname, phone, gender, birth_date, loyalty_card, loyalty_points, card_level, reg_source, reg_channel,
+                  referral_code, lang, unsubscribed, deleted_at, created_at
            FROM guests WHERE id = %s""",
         (guest_id,),
     )

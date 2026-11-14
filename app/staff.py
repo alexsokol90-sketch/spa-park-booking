@@ -256,3 +256,82 @@ async def update_template(template_id: int, title: str, role: str, kind: str, it
         raise ValueError("Шаблон не найден")
     await _refresh_pending(template_id)
     return row
+
+
+# ---------- сотрудники и доступ ----------
+
+POSITIONS = {"manager": "Управляющий", "admin": "Администратор", "master": "Мастер", "cleaning": "Клининг"}
+# Какие разделы кабинета видит должность. Управляющий и администратор — всё.
+ROLE_TABS = {
+    "owner": None,
+    "manager": None,
+    "admin": None,
+    "master": ["grid", "schedule", "checklists"],
+    "cleaning": ["checklists"],
+}
+FULL_ACCESS = ("owner", "manager", "admin")
+
+
+def hash_pin(pin: str, salt: str | None = None) -> str:
+    import hashlib
+    import secrets as _secrets
+
+    salt = salt or _secrets.token_hex(8)
+    digest = hashlib.scrypt(pin.encode(), salt=salt.encode(), n=2**14, r=8, p=1).hex()
+    return f"scrypt${salt}${digest}"
+
+
+def check_pin(pin: str, stored: str | None) -> bool:
+    import hmac
+
+    if not stored or not stored.startswith("scrypt$"):
+        return False
+    _, salt, _ = stored.split("$", 2)
+    return hmac.compare_digest(hash_pin(pin, salt), stored)
+
+
+async def employee_login(login: str, pin: str) -> dict | None:
+    emp = await db.query_one("SELECT * FROM employees WHERE login = %s AND active", (login.strip().lower(),))
+    if emp and check_pin(pin, emp["pin_hash"]):
+        return {"name": emp["name"], "role": emp["position"], "employee_id": emp["id"], "master_id": emp["master_id"]}
+    return None
+
+
+async def employees() -> list[dict]:
+    return await db.query(
+        """SELECT e.id, e.name, e.phone, e.position, e.master_id, e.login, e.active, e.created_at,
+                  m.skills FROM employees e LEFT JOIN masters m ON m.id = e.master_id ORDER BY e.active DESC, e.position, e.name"""
+    )
+
+
+async def save_employee(data: dict, emp_id: int | None = None) -> dict:
+    """Создание/изменение сотрудника. Мастер автоматически появляется в графике и подборе окон."""
+    position = data["position"]
+    if position not in POSITIONS:
+        raise ValueError("Неизвестная должность")
+    name = data["name"].strip()[:80]
+    login = (data.get("login") or "").strip().lower() or None
+    pin = (data.get("pin") or "").strip()
+    current = await db.query_one("SELECT * FROM employees WHERE id = %s", (emp_id,)) if emp_id else None
+    master_id = current["master_id"] if current else None
+    if position == "master":
+        if master_id:
+            await db.query("UPDATE masters SET name = %s, skills = %s, active = %s WHERE id = %s RETURNING id",
+                           (name, data.get("skills") or "", bool(data.get("active", True)), master_id))
+        else:
+            master_id = (await db.query_one("INSERT INTO masters (name, skills) VALUES (%s, %s) RETURNING id",
+                                            (name, data.get("skills") or "")))["id"]
+    pin_hash = hash_pin(pin) if pin else (current["pin_hash"] if current else None)
+    values = (name, data.get("phone") or None, position, master_id, login, pin_hash, bool(data.get("active", True)))
+    if current:
+        row = await db.query_one(
+            """UPDATE employees SET name=%s, phone=%s, position=%s, master_id=%s, login=%s, pin_hash=%s, active=%s
+               WHERE id=%s RETURNING id""", (*values, emp_id))
+    else:
+        row = await db.query_one(
+            """INSERT INTO employees (name, phone, position, master_id, login, pin_hash, active)
+               VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id""", values)
+    if master_id and not data.get("active", True):
+        await db.query("UPDATE masters SET active = false WHERE id = %s RETURNING id", (master_id,))
+    events.publish("schedule")
+    return row

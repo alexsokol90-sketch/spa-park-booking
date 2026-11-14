@@ -11,17 +11,21 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
+from psycopg import errors
 from pydantic import BaseModel, Field
 
 from . import (
     ai,
+    automations,
     booking,
+    certificates,
     config,
     db,
     dialog,
     escalation,
     events,
     guests,
+    loyalty,
     marketing,
     max_bot,
     notify,
@@ -54,17 +58,33 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(title=config.PROJECT_NAME, lifespan=lifespan)
 
 
-def require_admin(creds: Annotated[HTTPBasicCredentials | None, Depends(security)]) -> None:
+OWNER = {"name": "Владелец", "role": "owner"}
+
+
+async def require_admin(creds: Annotated[HTTPBasicCredentials | None, Depends(security)]) -> dict:
+    """Вход в кабинет: владелец (из .env) или сотрудник по логину и PIN-коду."""
     if not config.ADMIN_PASSWORD:
-        return
-    ok = creds is not None and secrets.compare_digest(creds.username, config.ADMIN_USER) and secrets.compare_digest(
+        return OWNER
+    if creds is not None and secrets.compare_digest(creds.username, config.ADMIN_USER) and secrets.compare_digest(
         creds.password, config.ADMIN_PASSWORD
-    )
-    if not ok:
-        raise HTTPException(status_code=401, headers={"WWW-Authenticate": "Basic"})
+    ):
+        return OWNER
+    if creds is not None:
+        user = await staff.employee_login(creds.username, creds.password)
+        if user:
+            return user
+    raise HTTPException(status_code=401, headers={"WWW-Authenticate": "Basic"})
+
+
+async def require_full(user: Annotated[dict, Depends(require_admin)]) -> dict:
+    """Клиенты, рассылки, сотрудники, ПДн — только управляющий и администратор."""
+    if user["role"] not in staff.FULL_ACCESS:
+        raise HTTPException(403, "Недостаточно прав")
+    return user
 
 
 ADMIN = [Depends(require_admin)]
+FULL = [Depends(require_full)]
 
 
 # ---------- веб-эмулятор чата гостя (тот же движок, что и в MAX) ----------
@@ -494,6 +514,237 @@ async def admin_checklist_toggle(run_id: int, inp: ToggleIn):
         return await staff.toggle(run_id, inp.index, inp.who)
     except ValueError as exc:
         raise HTTPException(404, str(exc)) from exc
+
+
+# ---------- текущий пользователь ----------
+
+@app.get("/api/admin/me")
+async def admin_me(user: Annotated[dict, Depends(require_admin)]):
+    return {"name": user["name"], "role": user["role"], "tabs": staff.ROLE_TABS.get(user["role"])}
+
+
+# ---------- клиенты и лояльность ----------
+
+class PeriodFilterIn(BaseModel):
+    filters: list[dict] = Field(default_factory=list, max_length=20)
+    date_from: date | None = None
+    date_to: date | None = None
+
+
+@app.get("/api/admin/clients/analytics", dependencies=FULL)
+async def clients_analytics(date_from: date | None = None, date_to: date | None = None):
+    return await loyalty.analytics(date_from, date_to)
+
+
+@app.post("/api/admin/clients/search", dependencies=FULL)
+async def clients_search(inp: PeriodFilterIn):
+    try:
+        rows = await loyalty.clients(inp.filters, inp.date_from, inp.date_to, limit=300)
+    except (ValueError, KeyError) as exc:
+        raise HTTPException(400, str(exc)) from exc
+    await privacy.audit(config.ADMIN_USER, "list_guests", None, f"клиенты по фильтру, строк: {len(rows)}")
+    return {"items": rows}
+
+
+@app.get("/api/admin/filter-fields", dependencies=FULL)
+async def filter_fields():
+    return {
+        "fields": [{"key": k, "label": v[2], "type": v[1]} for k, v in loyalty.FIELDS.items()],
+        "operators": loyalty.OPERATORS,
+        "variables": automations.VARIABLES,
+        "reply_buttons": automations.REPLY_BUTTONS,
+        "triggers": automations.TRIGGERS,
+        "actions": automations.ACTIONS,
+    }
+
+
+class BonusIn(BaseModel):
+    delta: int = Field(ge=-100000, le=100000)
+    note: str = Field(default="корректировка", max_length=200)
+
+
+@app.post("/api/admin/guests/{guest_id}/bonus", dependencies=FULL)
+async def guest_bonus(guest_id: int, inp: BonusIn):
+    return {"balance": await loyalty.add_bonus(guest_id, inp.delta, "adjust", inp.note)}
+
+
+class VisitIn(BaseModel):
+    attended: bool
+    paid: int | None = Field(default=None, ge=0)
+    bonus_spent: int = Field(default=0, ge=0)
+
+
+@app.post("/api/admin/bookings/{booking_id}/visit", dependencies=ADMIN)
+async def booking_visit(booking_id: int, inp: VisitIn):
+    try:
+        return await loyalty.mark_visit(booking_id, inp.attended, inp.paid, inp.bonus_spent)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+
+# ---------- рассылки (конструктор) и автоматизации ----------
+
+class CampaignBuildIn(BaseModel):
+    name: str = Field(default="Рассылка", max_length=100)
+    filters: list[dict] = Field(default_factory=list, max_length=20)
+    template: str = Field(min_length=3, max_length=2000)
+    buttons: list[dict] = Field(default_factory=list, max_length=5)
+    scheduled_at: datetime | None = None
+
+
+@app.post("/api/admin/campaigns/preview", dependencies=FULL)
+async def campaign_preview(inp: CampaignBuildIn):
+    try:
+        return await automations.preview(inp.filters, inp.template)
+    except (ValueError, KeyError) as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@app.post("/api/admin/campaigns", dependencies=FULL)
+async def campaign_create(inp: CampaignBuildIn):
+    try:
+        row = await automations.save_campaign(inp.name, inp.filters, inp.template, inp.buttons, inp.scheduled_at)
+    except (ValueError, KeyError) as exc:
+        raise HTTPException(400, str(exc)) from exc
+    await privacy.audit(config.ADMIN_USER, "campaign", None, f"рассылка «{inp.name}»")
+    return row
+
+
+@app.get("/api/admin/campaigns", dependencies=FULL)
+async def campaign_history():
+    return {"items": await db.query(
+        """SELECT c.id, c.name, c.status, c.scheduled_at, c.sent_at, c.created_at,
+                  (SELECT count(*) FROM outbox o WHERE o.campaign_id = c.id) AS sent
+           FROM campaigns c ORDER BY c.id DESC LIMIT 50""")}
+
+
+class AutomationIn(BaseModel):
+    name: str = Field(min_length=2, max_length=120)
+    trigger: str
+    days: int = Field(default=0, ge=0, le=365)
+    filters: list[dict] = Field(default_factory=list, max_length=20)
+    action: str
+    bonus_amount: int = Field(default=0, ge=0, le=100000)
+    bonus_days: int = Field(default=14, ge=1, le=365)
+    message: str = Field(default="", max_length=1500)
+    segment: str = Field(default="", max_length=60)
+    active: bool = True
+
+
+@app.get("/api/admin/automations", dependencies=FULL)
+async def automation_list():
+    return {"items": await automations.listing()}
+
+
+@app.post("/api/admin/automations", dependencies=FULL)
+async def automation_create(inp: AutomationIn):
+    try:
+        return await automations.save(inp.model_dump())
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@app.put("/api/admin/automations/{auto_id}", dependencies=FULL)
+async def automation_update(auto_id: int, inp: AutomationIn):
+    try:
+        return await automations.save(inp.model_dump(), auto_id)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@app.post("/api/admin/automations/run", dependencies=FULL)
+async def automation_run():
+    return {"done": await automations.run_all()}
+
+
+# ---------- сертификаты ----------
+
+class CertificateIn(BaseModel):
+    number: str = Field(min_length=3, max_length=40)
+    amount: int = Field(gt=0, le=1000000)
+    kind: str = Field(default="nominal", pattern="^(nominal|program)$")
+    program_name: str | None = Field(default=None, max_length=120)
+    buyer_name: str = Field(default="", max_length=120)
+    buyer_phone: str = Field(default="", max_length=30)
+    owner_name: str = Field(default="", max_length=120)
+    valid_days: int = Field(default=180, ge=1, le=1100)
+
+
+class RedeemIn(BaseModel):
+    amount: int = Field(gt=0)
+    booking_id: int | None = None
+    note: str = Field(default="", max_length=200)
+
+
+@app.get("/api/admin/certificates", dependencies=ADMIN)
+async def certificate_list(status: str | None = None):
+    return await certificates.listing(status)
+
+
+@app.post("/api/admin/certificates", dependencies=ADMIN)
+async def certificate_issue(inp: CertificateIn, user: Annotated[dict, Depends(require_admin)]):
+    try:
+        return await certificates.issue(inp.number, inp.amount, inp.kind, inp.program_name, inp.buyer_name,
+                                        inp.buyer_phone, inp.owner_name, inp.valid_days, user["name"])
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@app.get("/api/admin/certificates/{number}", dependencies=ADMIN)
+async def certificate_get(number: str):
+    cert = await certificates.find(number)
+    if not cert:
+        raise HTTPException(404, "Сертификат не найден")
+    return cert
+
+
+@app.post("/api/admin/certificates/{number}/redeem", dependencies=ADMIN)
+async def certificate_redeem(number: str, inp: RedeemIn, user: Annotated[dict, Depends(require_admin)]):
+    try:
+        return await certificates.redeem(number, inp.amount, inp.booking_id, user["name"], inp.note)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@app.post("/api/admin/certificates/{number}/cancel", dependencies=FULL)
+async def certificate_cancel(number: str, user: Annotated[dict, Depends(require_admin)]):
+    try:
+        return await certificates.cancel(number, user["name"])
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+# ---------- сотрудники ----------
+
+class EmployeeIn(BaseModel):
+    name: str = Field(min_length=2, max_length=80)
+    phone: str | None = Field(default=None, max_length=30)
+    position: str = Field(pattern="^(manager|admin|master|cleaning)$")
+    skills: str = Field(default="", max_length=120)
+    login: str | None = Field(default=None, max_length=40, pattern=r"^[a-zA-Z0-9_.-]*$")
+    pin: str | None = Field(default=None, max_length=12, pattern=r"^\d{0,12}$")
+    active: bool = True
+
+
+@app.get("/api/admin/employees", dependencies=FULL)
+async def employee_list():
+    return {"items": await staff.employees(), "positions": staff.POSITIONS}
+
+
+@app.post("/api/admin/employees", dependencies=FULL)
+async def employee_create(inp: EmployeeIn):
+    try:
+        return await staff.save_employee(inp.model_dump())
+    except (ValueError, errors.UniqueViolation) as exc:
+        raise HTTPException(400, "Логин уже занят" if isinstance(exc, errors.UniqueViolation) else str(exc)) from exc
+
+
+@app.put("/api/admin/employees/{emp_id}", dependencies=FULL)
+async def employee_update(emp_id: int, inp: EmployeeIn):
+    try:
+        return await staff.save_employee(inp.model_dump(), emp_id)
+    except (ValueError, errors.UniqueViolation) as exc:
+        raise HTTPException(400, "Логин уже занят" if isinstance(exc, errors.UniqueViolation) else str(exc)) from exc
 
 
 @app.post("/api/admin/jobs/{name}", dependencies=ADMIN)

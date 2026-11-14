@@ -354,9 +354,191 @@ async def seed(reset: bool = False) -> None:
             await _insert_staff(conn)
             await _insert_guests(conn)
             await _insert_bookings(conn)
+            await _insert_crm(conn)
         print("Демо-данные загружены")
     finally:
         await db.close_pool()
+
+
+
+
+# ---------- CRM-демо: клиенты, история визитов, бонусы, сертификаты, сотрудники, автоматизации ----------
+
+FEMALE = ["Анна", "Елена", "Ольга", "Мария", "Наталья", "Ирина", "Татьяна", "Светлана", "Юлия", "Екатерина",
+          "Ксения", "Анастасия", "Дарья", "Виктория", "Алина", "Полина", "Марина", "Людмила", "Валерия", "Алёна"]
+MALE = ["Алексей", "Дмитрий", "Сергей", "Андрей", "Максим", "Иван", "Артём", "Михаил", "Николай", "Павел"]
+SURNAMES_F = ["Иванова", "Петрова", "Смирнова", "Кузнецова", "Попова", "Соколова", "Лебедева", "Козлова", "Новикова", "Морозова"]
+SURNAMES_M = ["Иванов", "Петров", "Смирнов", "Кузнецов", "Попов", "Соколов", "Лебедев", "Козлов", "Новиков", "Морозов"]
+SOURCES = [("reception", 30), ("site", 22), ("social", 18), ("qr", 10), ("ads", 8), ("referral", 12)]
+CHANNELS = [("max", 38), ("tg", 32), ("vk", 14), ("web", 10), ("reception", 6)]
+AGE_WEIGHTS = [(18, 29, 24), (30, 39, 34), (40, 49, 22), (50, 59, 12), (60, 69, 6), (70, 79, 2)]
+
+EMPLOYEES = [
+    ("Ирина Соколовская", "manager", None, "manager", "1111"),
+    ("Полина", "admin", None, "admin", "2222"),
+    ("Гульнара", "cleaning", None, "cleaning", "3333"),
+]
+
+AUTOMATIONS = [
+    ("Подарок ко дню рождения", "birthday_before", 7, "bonus", 500, 14,
+     "{name}, скоро ваш день рождения! Дарим 500 бонусов на 14 дней — приходите отдохнуть. А в сам день рождения — скидка 25%."),
+    ("Спасибо за визит", "after_visit", 1, "message", 0, 14,
+     "{name}, спасибо, что были у нас! Будем рады отзыву — просто ответьте на это сообщение. У вас {bonuses} бонусов."),
+    ("Реактивация: 90 дней без визитов", "inactive", 90, "bonus", 300, 30,
+     "{name}, давно вас не видели. Дарим 300 бонусов на 30 дней — выберите время, я помогу записаться."),
+]
+
+
+def _weighted(rnd: random.Random, items: list) -> str:
+    return rnd.choices([i[0] for i in items], weights=[i[-1] for i in items])[0]
+
+
+def _birth(rnd: random.Random, today: date) -> date:
+    lo, hi, _ = rnd.choices(AGE_WEIGHTS, weights=[w[2] for w in AGE_WEIGHTS])[0]
+    age = rnd.randint(lo, hi)
+    return date(today.year - age, rnd.randint(1, 12), rnd.randint(1, 28))
+
+
+async def _insert_crm(conn) -> None:
+    rnd = random.Random(7)
+    today = datetime.now(config.TZ).date()
+    # пол и источник для базовых демо-гостей
+    for gid, gender in enumerate(["f", "f", "f", "m", "f", "f", "m", "f", "f", "f", "f", "f"], start=1):
+        await conn.execute(
+            "UPDATE guests SET gender = %s, reg_source = %s, reg_channel = %s, referral_code = %s WHERE id = %s",
+            (gender, _weighted(rnd, SOURCES), _weighted(rnd, CHANNELS), f"SPDEMO{gid}", gid),
+        )
+    new_ids = []
+    for n in range(150):
+        female = rnd.random() < 0.72
+        name = rnd.choice(FEMALE if female else MALE)
+        surname = rnd.choice(SURNAMES_F if female else SURNAMES_M)
+        registered = datetime.now(config.TZ) - timedelta(days=rnd.randint(1, 240))
+        row = await db.fetchone(
+            conn,
+            """INSERT INTO guests (phone, name, surname, gender, birth_date, reg_source, reg_channel, card_level,
+                                   referral_code, survey_done, created_at, loyalty_card)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,true,%s,%s) RETURNING id""",
+            (f"+7922{n:07d}", name, surname, "f" if female else "m", _birth(rnd, today), _weighted(rnd, SOURCES),
+             _weighted(rnd, CHANNELS), "platinum" if rnd.random() < 0.12 else "gold", f"SP{n:05d}", registered, f"SP-{300000 + n}"),
+        )
+        new_ids.append(row["id"])
+        for kind in ("pd", "rules"):
+            await conn.execute(
+                "INSERT INTO consents (guest_id, kind, granted, text_version, channel, created_at) VALUES (%s,%s,true,%s,'max',%s)",
+                (row["id"], kind, config.CONSENT_VERSION, registered),
+            )
+        await conn.execute(
+            "INSERT INTO consents (guest_id, kind, granted, text_version, channel, created_at) VALUES (%s,'ads',%s,%s,'max',%s)",
+            (row["id"], rnd.random() < 0.78, config.CONSENT_VERSION, registered),
+        )
+    referrers = new_ids[:30]
+    for gid in new_ids:
+        if rnd.random() < 0.12:
+            await conn.execute("UPDATE guests SET referred_by = %s, reg_source = 'referral' WHERE id = %s",
+                               (rnd.choice(referrers), gid))
+    await _insert_history(conn, rnd, new_ids, today)
+    await _insert_certificates(conn, rnd, today)
+    await _insert_employees(conn)
+    for name, trigger, days, action, amount, bdays, message in AUTOMATIONS:
+        await conn.execute(
+            """INSERT INTO automations (name, trigger, days, action, bonus_amount, bonus_days, message)
+               VALUES (%s,%s,%s,%s,%s,%s,%s)""",
+            (name, trigger, days, action, amount, bdays, message),
+        )
+
+
+async def _insert_history(conn, rnd: random.Random, guest_ids: list[int], today: date) -> None:
+    """История визитов за 8 месяцев: 3 слота в день, разные пространства и мастера — без пересечений."""
+    progs = await db.fetch(conn, "SELECT * FROM programs WHERE price IS NOT NULL OR price_couple IS NOT NULL")
+    by_space: dict[int, list] = {}
+    for p in progs:
+        by_space.setdefault(p["space_id"], []).append(p)
+    spaces = list(by_space)
+    for offset in range(240, 2, -1):
+        day = today - timedelta(days=offset)
+        for slot, hour in enumerate((11, 15, 19)):
+            if rnd.random() < 0.35:
+                continue
+            space = spaces[(offset + slot * 3) % len(spaces)]
+            prog = rnd.choice(by_space[space])
+            guest = rnd.choice(guest_ids)
+            master = (offset + slot) % 6 + 1
+            start = _local(day, hour)
+            end = start + timedelta(minutes=prog["duration_min"])
+            guests_n = 1 if prog["price"] is not None else 2
+            price = prog["price"] if guests_n == 1 else prog["price_couple"]
+            spent = int(price * 0.1) if rnd.random() < 0.15 else 0
+            row = await db.fetchone(
+                conn,
+                """INSERT INTO bookings (guest_id, program_id, space_id, master_id, starts_at, ends_at, master_until, busy_until,
+                       status, source, guests_count, price_total, paid_amount, bonus_spent, confirmed_at, visit_status)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'completed',%s,%s,%s,%s,%s,%s,'confirmed') RETURNING id""",
+                (guest, prog["id"], space, master, start, end, start + timedelta(minutes=prog["master_min"]),
+                 end + timedelta(minutes=prog["cleanup_min"]), rnd.choice(["bot", "bot", "admin"]), guests_n, price,
+                 price - spent, spent, start),
+            )
+            created = start + timedelta(hours=4)
+            await conn.execute(
+                "INSERT INTO bonus_tx (guest_id, delta, kind, booking_id, note, created_at) VALUES (%s,%s,'accrual',%s,'кешбэк',%s)",
+                (guest, int((price - spent) * 0.05), row["id"], created),
+            )
+            if spent:
+                await conn.execute(
+                    "INSERT INTO bonus_tx (guest_id, delta, kind, booking_id, note, created_at) VALUES (%s,%s,'redeem',%s,'оплата бонусами',%s)",
+                    (guest, -spent, row["id"], start),
+                )
+    for gid in rnd.sample(guest_ids, 25):
+        created = datetime.now(config.TZ) - timedelta(days=rnd.randint(20, 120))
+        await conn.execute(
+            "INSERT INTO bonus_tx (guest_id, delta, kind, note, expires_at, created_at) VALUES (%s,500,'gift','подарок ко дню рождения',%s,%s)",
+            (gid, created + timedelta(days=14), created),
+        )
+        if rnd.random() < 0.5:
+            await conn.execute(
+                "INSERT INTO bonus_tx (guest_id, delta, kind, note, created_at) VALUES (%s,-500,'expire','сгорание подарка',%s)",
+                (gid, created + timedelta(days=14)),
+            )
+    await conn.execute(
+        "UPDATE guests g SET loyalty_points = GREATEST(0, (SELECT COALESCE(sum(delta), 0) FROM bonus_tx t WHERE t.guest_id = g.id))"
+    )
+
+
+async def _insert_certificates(conn, rnd: random.Random, today: date) -> None:
+    for n, amount in enumerate([3000, 5000, 5000, 10000, 10000, 20000, 7300, 7500, 15000, 5000], start=1):
+        number = f"SP-{2026}{n:04d}"
+        sold = today - timedelta(days=rnd.randint(5, 150))
+        used = amount if n in (2, 7) else (amount // 2 if n in (4, 9) else 0)
+        status = "used" if used == amount else "active"
+        row = await db.fetchone(
+            conn,
+            """INSERT INTO certificates (number, kind, program_name, amount, balance, status, buyer_name, owner_name, sold_at, expires_at)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+            (number, "program" if amount in (7300, 7500, 15000) else "nominal",
+             {7300: "Утро невесты", 7500: "Королева красоты", 15000: "Экспресс детокс"}.get(amount), amount, amount - used,
+             status, rnd.choice(FEMALE + MALE), rnd.choice(FEMALE), _local(sold, 12), sold + timedelta(days=180)),
+        )
+        await conn.execute("INSERT INTO certificate_ops (certificate_id, kind, amount, actor, note, created_at) VALUES (%s,'sale',%s,'ресепшен','продажа',%s)",
+                           (row["id"], amount, _local(sold, 12)))
+        if used:
+            await conn.execute("INSERT INTO certificate_ops (certificate_id, kind, amount, actor, note, created_at) VALUES (%s,'redeem',%s,'ресепшен','оплата визита',%s)",
+                               (row["id"], -used, _local(sold + timedelta(days=20), 15)))
+
+
+async def _insert_employees(conn) -> None:
+    from .staff import hash_pin
+
+    for master in await db.fetch(conn, "SELECT id, name FROM masters ORDER BY id"):
+        login = f"master{master['id']}"
+        await conn.execute(
+            "INSERT INTO employees (name, position, master_id, login, pin_hash) VALUES (%s, 'master', %s, %s, %s)",
+            (master["name"], master["id"], login, hash_pin("4444")),
+        )
+    for name, position, master_id, login, pin in EMPLOYEES:
+        await conn.execute(
+            "INSERT INTO employees (name, position, master_id, login, pin_hash) VALUES (%s, %s, %s, %s, %s)",
+            (name, position, master_id, login, hash_pin(pin)),
+        )
 
 
 if __name__ == "__main__":

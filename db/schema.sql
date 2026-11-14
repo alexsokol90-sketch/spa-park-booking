@@ -257,3 +257,110 @@ ALTER TABLE checklist_templates ADD CONSTRAINT checklist_templates_kind_check
 ALTER TABLE checklist_templates DROP CONSTRAINT IF EXISTS checklist_templates_role_check;
 ALTER TABLE checklist_templates ADD CONSTRAINT checklist_templates_role_check
     CHECK (role IN ('admin', 'master', 'cleaning'));
+
+-- ===== Клиенты и лояльность (миграции) =====
+ALTER TABLE guests ADD COLUMN IF NOT EXISTS surname text;
+ALTER TABLE guests ADD COLUMN IF NOT EXISTS gender text;
+ALTER TABLE guests ADD COLUMN IF NOT EXISTS reg_source text NOT NULL DEFAULT 'messenger';
+ALTER TABLE guests ADD COLUMN IF NOT EXISTS reg_channel text NOT NULL DEFAULT 'web';
+ALTER TABLE guests ADD COLUMN IF NOT EXISTS referral_code text UNIQUE;
+ALTER TABLE guests ADD COLUMN IF NOT EXISTS referred_by int REFERENCES guests(id);
+ALTER TABLE guests ADD COLUMN IF NOT EXISTS card_level text NOT NULL DEFAULT 'gold';
+ALTER TABLE guests ADD COLUMN IF NOT EXISTS survey_done boolean NOT NULL DEFAULT false;
+ALTER TABLE guests DROP CONSTRAINT IF EXISTS guests_gender_check;
+ALTER TABLE guests ADD CONSTRAINT guests_gender_check CHECK (gender IS NULL OR gender IN ('f', 'm'));
+
+-- Визит и оплата без кассы: администратор отмечает «пришёл» и сумму.
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS paid_amount int;
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS bonus_spent int NOT NULL DEFAULT 0;
+
+-- Бонусы: каждое движение — отдельная строка (начисление, списание, сгорание, подарок, реферал).
+CREATE TABLE IF NOT EXISTS bonus_tx (
+    id         bigserial PRIMARY KEY,
+    guest_id   int NOT NULL REFERENCES guests(id),
+    delta      int NOT NULL,
+    kind       text NOT NULL CHECK (kind IN ('accrual', 'redeem', 'expire', 'gift', 'referral', 'adjust')),
+    booking_id int REFERENCES bookings(id),
+    expires_at timestamptz,
+    note       text NOT NULL DEFAULT '',
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS bonus_tx_guest ON bonus_tx (guest_id, created_at);
+
+-- Подарочные сертификаты: номер, номинал, остаток, движения.
+CREATE TABLE IF NOT EXISTS certificates (
+    id           serial PRIMARY KEY,
+    number       text UNIQUE NOT NULL,
+    kind         text NOT NULL CHECK (kind IN ('nominal', 'program')),
+    program_name text,
+    amount       int NOT NULL CHECK (amount > 0),
+    balance      int NOT NULL CHECK (balance >= 0),
+    status       text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'used', 'expired', 'cancelled')),
+    buyer_name   text,
+    buyer_phone  text,
+    owner_name   text,
+    sold_at      timestamptz NOT NULL DEFAULT now(),
+    expires_at   date NOT NULL,
+    note         text NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS certificate_ops (
+    id             bigserial PRIMARY KEY,
+    certificate_id int NOT NULL REFERENCES certificates(id),
+    kind           text NOT NULL CHECK (kind IN ('sale', 'redeem', 'refund', 'cancel')),
+    amount         int NOT NULL,
+    booking_id     int REFERENCES bookings(id),
+    actor          text NOT NULL DEFAULT '',
+    note           text NOT NULL DEFAULT '',
+    created_at     timestamptz NOT NULL DEFAULT now()
+);
+
+-- Сотрудники и доступ к рабочему кабинету.
+CREATE TABLE IF NOT EXISTS employees (
+    id         serial PRIMARY KEY,
+    name       text NOT NULL,
+    phone      text,
+    position   text NOT NULL CHECK (position IN ('manager', 'admin', 'master', 'cleaning')),
+    master_id  int REFERENCES masters(id),
+    login      text UNIQUE,
+    pin_hash   text,
+    active     boolean NOT NULL DEFAULT true,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Сегменты (ручные метки гостей, которые ставят автоматизации и рассылки).
+CREATE TABLE IF NOT EXISTS guest_segments (
+    guest_id int NOT NULL REFERENCES guests(id) ON DELETE CASCADE,
+    segment  text NOT NULL,
+    added_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (guest_id, segment)
+);
+
+-- Автоматизации маркетинга: событие → условия → действие.
+CREATE TABLE IF NOT EXISTS automations (
+    id           serial PRIMARY KEY,
+    name         text NOT NULL,
+    trigger      text NOT NULL CHECK (trigger IN ('birthday_before', 'after_visit', 'inactive', 'registration')),
+    days         int NOT NULL DEFAULT 0,
+    filters      jsonb NOT NULL DEFAULT '[]'::jsonb,
+    action       text NOT NULL CHECK (action IN ('bonus', 'message', 'segment_add', 'segment_remove')),
+    bonus_amount int NOT NULL DEFAULT 0,
+    bonus_days   int NOT NULL DEFAULT 14,
+    message      text NOT NULL DEFAULT '',
+    segment      text NOT NULL DEFAULT '',
+    active       boolean NOT NULL DEFAULT true,
+    created_at   timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS automation_runs (
+    automation_id int NOT NULL REFERENCES automations(id) ON DELETE CASCADE,
+    guest_id      int NOT NULL REFERENCES guests(id) ON DELETE CASCADE,
+    run_key       text NOT NULL,
+    created_at    timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (automation_id, guest_id, run_key)
+);
+
+-- Рассылки: фильтры, кнопки, отложенная отправка.
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS filters jsonb NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS buttons jsonb NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS scheduled_at timestamptz;
+ALTER TABLE campaigns DROP CONSTRAINT IF EXISTS campaigns_status_check;
+ALTER TABLE campaigns ADD CONSTRAINT campaigns_status_check CHECK (status IN ('draft', 'scheduled', 'sent'));

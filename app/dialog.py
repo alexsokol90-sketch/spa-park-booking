@@ -12,11 +12,13 @@ from datetime import date, datetime, timedelta
 from . import (
     ai,
     booking,
+    certificates,
     config,
     db,
     escalation,
     guests,
     kb,
+    loyalty,
     nlu,
     notify,
     speech,
@@ -91,7 +93,7 @@ async def handle_voice(guest: dict, audio: bytes | None, filename: str = "voice.
     return [Out(text=speech.heard(heard, lang)), *await handle(guest, text=heard)]
 
 
-START_PARAM = re.compile(r"^(book|couple|staff|prices|(prog|space)_\d{1,4})$")
+START_PARAM = re.compile(r"^(book|couple|staff|prices|(prog|space)_\d{1,4}|ref_[a-z0-9]{3,12})$")
 
 
 def start_payload(param: str | None) -> str:
@@ -99,13 +101,14 @@ def start_payload(param: str | None) -> str:
     param = (param or "").strip().lower()
     if not START_PARAM.match(param):
         return "menu"
-    return param.replace("_", ":")
+    return param.replace("_", ":", 1)
 
 
 def main_menu(ctx: Ctx) -> Buttons:
     return [
         [(ctx.tr("btn_book"), "book"), (ctx.tr("btn_programs"), "prices")],
-        [(ctx.tr("btn_my"), "my"), (ctx.tr("btn_couple"), "couple")],
+        [(ctx.tr("btn_my"), "my"), (ctx.tr("btn_promo_main"), "faq:promo")],
+        [(ctx.tr("btn_couple"), "couple"), (ctx.tr("btn_bonuses"), "bonuses")],
         [(ctx.tr("btn_info"), "faq:address"), (ctx.tr("btn_contra"), "faq:contraindications")],
         [(ctx.tr("btn_more"), "more"), (ctx.tr("btn_admin"), "admin")],
         [(ctx.tr("btn_lang"), "lang")],
@@ -121,6 +124,8 @@ async def greet(ctx: Ctx) -> None:
     ctx.state.pop("master_id", None)
     name = ctx.guest.get("name")
     text = ctx.tr("greet_known", name=name) if name else ctx.tr("greet_new")
+    if _birthday_soon(ctx.guest.get("birth_date")):
+        text += "\n\n" + ctx.tr("birthday_soon")
     if (ctx.guest.get("max_user_id") or 0) > 0:
         text += "\n\n" + ctx.tr("max_voice_note")
     if is_night():
@@ -150,6 +155,7 @@ async def p_more(ctx: Ctx, _: str) -> None:
         [(ctx.tr("btn_cert"), "faq:certificate"), (ctx.tr("btn_promo"), "faq:promo")],
         [(ctx.tr("btn_groups"), "groups"), (ctx.tr("btn_etiquette"), "faq:etiquette")],
         [(ctx.tr("btn_payment"), "faq:payment"), (ctx.tr("btn_staff"), "staff")],
+        [(ctx.tr("btn_cert_check"), "certcheck"), (ctx.tr("btn_invite"), "invite")],
         menu_row(ctx),
     ]
     ctx.say(ctx.tr("more_title"), buttons)
@@ -424,6 +430,9 @@ async def finish_booking(ctx: Ctx, hold_id: int) -> None:
         f"Новая бронь из бота: {bk['program_name']}, {fmt_when(bk['starts_at'], 'ru')}, {bk['guest_name']} {bk['guest_phone']}",
         kind="booking",
     )
+    guest = await guests.get(ctx.gid)
+    if not guest["survey_done"]:
+        await start_survey(ctx, guest)
 
 
 # ---------- мои записи, отмена, перенос ----------
@@ -615,6 +624,124 @@ async def p_master(ctx: Ctx, arg: str) -> None:
     ctx.say(text, rows + [menu_row(ctx)])
 
 
+# ---------- мини-анкета, бонусы, приглашения, сертификаты ----------
+
+def _birthday_soon(birth: date | None, days: int = 7) -> bool:
+    if not birth:
+        return False
+    today = booking.now().date()
+    try:
+        this_year = birth.replace(year=today.year)
+    except ValueError:
+        this_year = date(today.year, 3, 1)
+    return 0 <= (this_year - today).days <= days
+
+
+def parse_birth(text: str) -> date | None:
+    match = re.search(r"(\d{1,2})[./\- ](\d{1,2})[./\- ](\d{4})", text)
+    if not match:
+        return None
+    try:
+        value = date(int(match.group(3)), int(match.group(2)), int(match.group(1)))
+    except ValueError:
+        return None
+    today = booking.now().date()
+    return value if date(1920, 1, 1) <= value <= today.replace(year=today.year - 10) else None
+
+
+async def start_survey(ctx: Ctx, guest: dict) -> None:
+    """Мини-анкета после первой брони: дата рождения, обращение, откуда узнали. Всё по желанию."""
+    if guest.get("birth_date"):
+        await ask_gender(ctx)
+        return
+    ctx.state["await"] = "survey_birth"
+    ctx.say(ctx.tr("survey_birth"), [[(ctx.tr("btn_skip"), "srv:birth_skip")]])
+
+
+async def ask_gender(ctx: Ctx) -> None:
+    ctx.state.pop("await", None)
+    ctx.say(ctx.tr("survey_gender"), [[(ctx.tr("btn_female"), "srv:g_f"), (ctx.tr("btn_male"), "srv:g_m")], [(ctx.tr("btn_skip"), "srv:g_skip")]])
+
+
+async def ask_source(ctx: Ctx) -> None:
+    keys = ["site", "social", "referral", "ads", "reception", "qr"]
+    buttons = _pairs([(ctx.tr("src_" + k), "srv:s_" + k) for k in keys]) + [[(ctx.tr("btn_skip"), "srv:s_skip")]]
+    ctx.say(ctx.tr("survey_source"), buttons)
+
+
+async def p_survey(ctx: Ctx, arg: str) -> None:
+    if arg == "birth_skip":
+        await ask_gender(ctx)
+    elif arg.startswith("g_"):
+        if arg in ("g_f", "g_m"):
+            await db.query("UPDATE guests SET gender = %s WHERE id = %s RETURNING id", (arg[-1], ctx.gid))
+        await ask_source(ctx)
+    elif arg.startswith("s_"):
+        source = arg[2:]
+        if source != "skip":
+            await db.query(
+                "UPDATE guests SET reg_source = %s WHERE id = %s AND reg_source <> 'referral' RETURNING id", (source, ctx.gid)
+            )
+        await db.query("UPDATE guests SET survey_done = true WHERE id = %s RETURNING id", (ctx.gid,))
+        await loyalty.ensure_referral_code(ctx.gid)
+        ctx.say(ctx.tr("survey_done", name=ctx.guest.get("name") or ""), [[(ctx.tr("btn_bonuses"), "bonuses")], menu_row(ctx)])
+
+
+async def on_birth(ctx: Ctx, text: str) -> bool:
+    birth = parse_birth(text)
+    if not birth:
+        ctx.say(ctx.tr("survey_birth_bad"), [[(ctx.tr("btn_skip"), "srv:birth_skip")]])
+        return True
+    await db.query("UPDATE guests SET birth_date = %s WHERE id = %s RETURNING id", (birth, ctx.gid))
+    await ask_gender(ctx)
+    return True
+
+
+async def p_bonuses(ctx: Ctx, _: str) -> None:
+    from .automations import referral_link
+
+    guest = await guests.get(ctx.gid)
+    if not guest["phone"]:
+        ctx.state["await"] = "phone"
+        ctx.say(ctx.tr("bonuses_need_phone"), [menu_row(ctx)], request_contact=True)
+        return
+    code = await loyalty.ensure_referral_code(ctx.gid)
+    names = {"gold": "Gold", "platinum": "Platinum"} if ctx.lang == "en" else {"gold": "Золотая", "platinum": "Платиновая"}
+    text = ctx.tr("bonuses_info", points=guest["loyalty_points"], level=names.get(guest["card_level"], guest["card_level"]),
+                  cashback=int(loyalty.CASHBACK.get(guest["card_level"], 0.05) * 100), link=referral_link(code))
+    ctx.say(text, [[(ctx.tr("btn_book"), "book")], menu_row(ctx)])
+
+
+async def p_ref(ctx: Ctx, code: str) -> None:
+    if await loyalty.apply_referral(ctx.gid, code):
+        ctx.say(ctx.tr("ref_ok"))
+    await greet(ctx)
+
+
+async def p_certcheck(ctx: Ctx, _: str) -> None:
+    ctx.state["await"] = "certificate"
+    ctx.say(ctx.tr("cert_ask"), [menu_row(ctx)])
+
+
+async def on_certificate(ctx: Ctx, text: str) -> bool:
+    match = re.search(r"[A-Za-zА-Яа-я]{0,3}-?\d{4,12}", text)
+    if not match:
+        return False
+    ctx.state.pop("await", None)
+    cert = await certificates.find(match.group(0))
+    if not cert:
+        ctx.say(ctx.tr("cert_missing"), [[(ctx.tr("btn_admin"), "admin")], menu_row(ctx)])
+        return True
+    until = fmt_day(cert["expires_at"], ctx.lang)
+    if cert["status"] == "active":
+        ctx.say(ctx.tr("cert_found", number=cert["number"], balance=_money(cert["balance"]), amount=_money(cert["amount"]), until=until),
+                [[(ctx.tr("btn_book"), "book")], menu_row(ctx)])
+        return True
+    status = {"used": "уже использован", "expired": "срок действия истёк", "cancelled": "аннулирован"}[cert["status"]]
+    ctx.say(ctx.tr("cert_inactive", number=cert["number"], status=status), [[(ctx.tr("btn_admin"), "admin")], menu_row(ctx)])
+    return True
+
+
 PAYLOAD_HANDLERS = {
     "menu": p_menu,
     "more": p_more,
@@ -645,6 +772,11 @@ PAYLOAD_HANDLERS = {
     "admin": p_admin,
     "staff": p_staff,
     "master": p_master,
+    "srv": p_survey,
+    "bonuses": p_bonuses,
+    "invite": p_bonuses,
+    "ref": p_ref,
+    "certcheck": p_certcheck,
 }
 
 
@@ -658,6 +790,10 @@ async def on_awaited(ctx: Ctx, text: str) -> bool:
         return True
     if waiting == "name" and 1 < len(text.strip()) <= 60:
         await on_name(ctx, text)
+        return True
+    if waiting == "survey_birth":
+        return await on_birth(ctx, text)
+    if waiting == "certificate" and await on_certificate(ctx, text):
         return True
     if waiting == "group_wishes":
         ctx.state.pop("await", None)

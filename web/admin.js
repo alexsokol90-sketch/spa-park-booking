@@ -236,7 +236,7 @@
 
   // ---------- карточка брони ----------
   const drawer = document.getElementById("drawer");
-  const STATUS = { hold: "захват", confirmed: "подтверждена", completed: "завершена", cancelled: "отменена", expired: "захват истёк" };
+  const STATUS = { hold: "захват", confirmed: "подтверждена", completed: "гость пришёл", cancelled: "отменена", expired: "захват истёк", no_show: "не пришёл" };
   const VISIT = { none: "—", asked: "запрос отправлен, ждём ответа", confirmed: "гость подтвердил", declined: "гость отказался" };
   const PAY = { unpaid: "не оплачено", prepaid: "предоплата", paid: "оплачено", certificate: "сертификат" };
 
@@ -265,6 +265,16 @@
     if (b.status === "confirmed" || b.status === "completed") {
       [["paid", "карта на месте"], ["paid", "наличные"], ["paid", "ресепшен отеля"], ["prepaid", "онлайн на сайте"], ["certificate", "сертификат"]].forEach(([st, m]) =>
         actions.append(act("Оплата: " + m, () => api("api/admin/bookings/" + id + "/payment", { method: "POST", body: { status: st, method: m } }))));
+    }
+    if (b.status === "confirmed" || b.status === "completed") {
+      actions.append(act("✓ Пришёл", async () => {
+        const paid = window.prompt("Сумма оплаты, ₽ (бонусы — следующим шагом)", b.paid_amount ?? b.price);
+        if (paid === null) return;
+        const bonus = window.prompt("Списать бонусов (0 — не списывать, не больше 50% чека)", "0");
+        const res = await api("api/admin/bookings/" + id + "/visit", { method: "POST", body: { attended: true, paid: Number(paid), bonus_spent: Number(bonus || 0) } });
+        toast("Визит отмечен. Начислено бонусов: " + (res.accrued || 0));
+      }, "primary"));
+      actions.append(act("Не пришёл", () => api("api/admin/bookings/" + id + "/visit", { method: "POST", body: { attended: false } }), "danger"));
     }
     if (b.status === "hold" || b.status === "confirmed") actions.append(act("Отменить", () => api("api/admin/bookings/" + id + "/cancel", { method: "POST" }), "danger"));
     drawer.innerHTML = "";
@@ -381,7 +391,7 @@
     const g = await api("api/admin/guests/" + id);
     const dl = h("dl", { class: "kv" });
     [["Имя", g.name || "—"], ["Телефон", g.phone || "—"], ["Дата рождения", g.birth_date ? new Date(g.birth_date).toLocaleDateString("ru-RU") : "—"],
-      ["Карта лояльности", (g.loyalty_card || "—") + " · баллов: " + g.loyalty_points], ["Язык", g.lang === "en" ? "английский" : "русский"],
+      ["Карта лояльности", (g.loyalty_card || "—") + " · бонусов: " + g.loyalty_points], ["Язык", g.lang === "en" ? "английский" : "русский"],
       ["Рассылки", g.unsubscribed ? "отписан" : "—"]].forEach(([k, v]) => dl.append(h("dt", { text: k }), h("dd", { text: v })));
     const consents = h("div", {}, g.consents.map((c) => h("div", { class: "consent-row" }, [
       h("span", { class: c.granted ? "ok" : "no", text: (c.granted ? "✓ " : "✕ ") + KIND[c.kind] }),

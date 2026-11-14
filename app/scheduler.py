@@ -7,7 +7,7 @@
 """
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 
 from . import booking, config, db, escalation, events, guests, marketing, notify
 from .texts import fmt_time, t
@@ -73,6 +73,9 @@ async def remind_soon() -> None:
            AND b.starts_at BETWEEN now() + interval '2 hours' AND now() + interval '3 hours'
            AND NOT EXISTS (SELECT 1 FROM outbox o WHERE o.booking_id = b.id AND o.kind = 'reminder')"""
     )
+    local_now = datetime.now(config.TZ).time()
+    if local_now < time(9, 0) or local_now >= QUIET_START:
+        return
     for row in rows:
         bk = await booking.get_booking(row["id"])
         guest = await guests.get(bk["guest_id"])
@@ -114,22 +117,45 @@ async def renotify_escalations() -> None:
         await escalation.notify_admin(esc)
 
 
+# Окна отправки сервисных сообщений гостям: ночью (22:00–10:00) не пишем.
+SEND_WINDOWS = (time(10, 0), time(14, 0), time(18, 0))
+QUIET_START, QUIET_END = time(22, 0), time(10, 0)
+ASK_AHEAD_HOURS = 30   # просим подтвердить в первом окне, когда до визита осталось не больше 30 часов
+ASK_MIN_HOURS = 2      # меньше чем за 2 часа уже не спрашиваем — уйдёт напоминание с адресом
+
+
+def is_quiet(moment: datetime) -> bool:
+    local = moment.astimezone(config.TZ).time()
+    return local >= QUIET_START or local < QUIET_END
+
+
+def confirmation_due(start: datetime, moment: datetime) -> bool:
+    """Пора ли просить подтверждение: окно дневное и до визита от 2 до 30 часов.
+    Запись за 3 дня → спросим накануне (за ~24 ч), запись на завтрашнее утро → в ближайшее окно (за 12–20 ч),
+    запись «на сегодня» → в окно 10:00 или 14:00 (за 2–6 ч)."""
+    hours_left = (start - moment).total_seconds() / 3600
+    return not is_quiet(moment) and ASK_MIN_HOURS <= hours_left <= ASK_AHEAD_HOURS
+
+
 async def request_visit_confirmations() -> int:
-    """10:00 — просьба подтвердить завтрашний визит."""
-    tomorrow = datetime.now(config.TZ).date() + timedelta(days=1)
-    start, end = booking.day_bounds(tomorrow)
+    """Просьба подтвердить визит и выбрать предзаказ — в дневное окно, с учётом того, сколько осталось до визита."""
+    moment = datetime.now(config.TZ)
     rows = await db.query(
-        """SELECT id FROM bookings WHERE status = 'confirmed' AND visit_status = 'none'
-           AND starts_at >= %s AND starts_at < %s""",
-        (start, end),
+        """SELECT id, starts_at FROM bookings WHERE status = 'confirmed' AND visit_status = 'none'
+           AND starts_at > now() AND starts_at <= now() + make_interval(hours => %s)""",
+        (ASK_AHEAD_HOURS,),
     )
     sent = 0
     for row in rows:
+        if not confirmation_due(row["starts_at"], moment):
+            continue
         bk = await booking.get_booking(row["id"])
         guest = await guests.get(bk["guest_id"])
         lang = guest["lang"] or "ru"
         program = bk["program_name_en"] if lang == "en" else bk["program_name"]
-        text = t("visit_ask", lang, name=guest["name"] or "", time=fmt_time(bk["starts_at"]), program=program, master=bk["master_name"])
+        local_day = bk["starts_at"].astimezone(config.TZ).date()
+        when_key = "visit_ask" if local_day != moment.date() else "visit_ask_today"
+        text = t(when_key, lang, name=guest["name"] or "", time=fmt_time(bk["starts_at"]), program=program, master=bk["master_name"])
         out = notify.Out(
             text=text.lstrip(", "),
             buttons=[
@@ -145,14 +171,26 @@ async def request_visit_confirmations() -> int:
     return sent
 
 
-async def no_answer_list(day=None) -> list[dict]:
-    """Гости, не ответившие на просьбу подтвердить визит, — для точечного обзвона."""
-    day = day or datetime.now(config.TZ).date() + timedelta(days=1)
-    start, end = booking.day_bounds(day)
+async def run_send_windows() -> None:
+    """Каждое окно (10:00, 14:00, 18:00) отрабатывает один раз в день."""
+    now = datetime.now(config.TZ)
+    for window in SEND_WINDOWS:
+        if now.time() < window or now.time() >= (datetime.combine(now.date(), window) + timedelta(hours=1)).time():
+            continue
+        claimed = await db.query_one(
+            "INSERT INTO job_runs (job, run_day) VALUES (%s, %s) ON CONFLICT DO NOTHING RETURNING job",
+            (f"confirm-{window:%H%M}", now.date()),
+        )
+        if claimed:
+            log.info("send window %s: %s", window, await request_visit_confirmations())
+
+
+async def no_answer_list() -> list[dict]:
+    """Гости, не ответившие на просьбу подтвердить визит (ближайшие 30 часов), — для точечного обзвона."""
     return await db.query(
         booking.BOOKING_SELECT
-        + " WHERE b.status = 'confirmed' AND b.visit_status = 'asked' AND b.starts_at >= %s AND b.starts_at < %s ORDER BY b.starts_at",
-        (start, end),
+        + """ WHERE b.status = 'confirmed' AND b.visit_status = 'asked' AND b.starts_at > now()
+              AND b.starts_at <= now() + interval '30 hours' ORDER BY b.starts_at""",
     )
 
 
@@ -186,9 +224,15 @@ async def birthday_greetings() -> int:
     return result["sent"]
 
 
+async def run_automations() -> int:
+    from . import automations, loyalty
+
+    await loyalty.expire_gifts()
+    return await automations.run_all()
+
+
 DAILY_JOBS = [
-    ("visit_confirm", config.CONFIRM_REQUEST_TIME, request_visit_confirmations),
-    ("birthdays", config.BIRTHDAY_TIME, birthday_greetings),
+    ("automations", config.BIRTHDAY_TIME, run_automations),
     ("no_answer", config.NO_ANSWER_REPORT_TIME, report_no_answer),
 ]
 
@@ -205,7 +249,7 @@ async def run_daily() -> None:
             log.info("daily job %s: %s", name, await job())
 
 
-JOBS_BY_NAME = {name: job for name, _, job in DAILY_JOBS}
+JOBS_BY_NAME = {name: job for name, _, job in DAILY_JOBS} | {"visit_confirm": request_visit_confirmations}
 
 
 async def loop() -> None:
@@ -217,6 +261,10 @@ async def loop() -> None:
             await thank_after_visit()
             await renotify_escalations()
             await run_daily()
+            await run_send_windows()
+            from . import automations
+
+            await automations.send_due_campaigns()
         except Exception:
             log.exception("scheduler tick failed")
         await asyncio.sleep(TICK_SECONDS)

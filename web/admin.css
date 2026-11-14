@@ -140,3 +140,34 @@ button:disabled { opacity: .5; cursor: default; }
 .stat.good b { color: var(--accent); }
 .stat.bad b { color: var(--danger); }
 .stat span { color: var(--muted); font-size: 12px; }
+.tab-group { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 2px 0 10px; align-self: center; }
+.tabs { flex-wrap: wrap; row-gap: 2px; }
+.tabs button { padding: 6px 9px; font-size: 13px; }
+h2.inline { margin: 0 12px 0 0; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.kpi { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+.kpi b { display: block; font-size: 22px; }
+.kpi span { color: var(--muted); font-size: 12px; }
+.charts { display: grid; grid-template-columns: 2fr 1fr; gap: 14px; margin-bottom: 18px; }
+.chart-card { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 14px; min-width: 0; }
+.chart-card h3 { margin: 0 0 8px; font-size: 14px; }
+.chart-card svg { width: 100%; height: auto; display: block; }
+.chart-card svg text { font: 11px -apple-system, "Segoe UI", sans-serif; fill: #6b665d; }
+.chart-card .bar:hover { opacity: .8; }
+.legend-row { display: flex; gap: 14px; font-size: 12px; color: var(--muted); margin-top: 4px; }
+.legend-row i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+.filters .frow { display: flex; gap: 6px; margin: 6px 0; flex-wrap: wrap; }
+.filters select, .filters input, .search { padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; font: inherit; font-size: 13px; }
+.vars { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 12px; }
+.vars button { font-size: 12px; padding: 3px 8px; border: 1px dashed var(--accent); background: #fff; border-radius: 6px; cursor: pointer; color: var(--accent); }
+.btnrow { display: flex; gap: 6px; margin: 6px 0; flex-wrap: wrap; }
+.btnrow input, .btnrow select { padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; font: inherit; font-size: 13px; }
+.cert-card { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin: 10px 0; }
+.cert-card .big { font-size: 28px; font-weight: 700; }
+@media (max-width: 1100px) { .charts { grid-template-columns: 1fr; } }
+.chart-card svg.hbars { max-width: 460px; }
+.chart-card svg.donut { max-width: 220px; margin: 0 auto; }
+.filters input, .filters select, .btnrow input, .btnrow select { width: auto !important; display: inline-block !important; margin: 0 !important; }
+.filters .frow input, .btnrow input { flex: 1; min-width: 120px; }
+.tpl .meta { flex-wrap: wrap; align-items: center; }
+.tpl textarea { font: inherit; font-size: 13px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; }

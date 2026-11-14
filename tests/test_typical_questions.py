@@ -74,3 +74,18 @@ def test_booking_deep_links():
     assert start_payload("space_5") == "space:5"
     assert start_payload("") == "menu"
     assert start_payload("drop table") == "menu"
+
+
+def test_confirmation_timing_rules():
+    from datetime import datetime
+
+    from app import config
+    from app.scheduler import confirmation_due
+
+    tz = config.TZ
+    visit = datetime(2026, 11, 20, 19, 0, tzinfo=tz)
+    assert confirmation_due(visit, datetime(2026, 11, 19, 18, 0, tzinfo=tz))      # накануне, за 25 ч
+    assert not confirmation_due(visit, datetime(2026, 11, 18, 18, 0, tzinfo=tz))  # за 49 ч — рано
+    assert not confirmation_due(visit, datetime(2026, 11, 20, 18, 0, tzinfo=tz))  # за 1 ч — поздно
+    assert confirmation_due(visit, datetime(2026, 11, 20, 14, 0, tzinfo=tz))      # запись «на сегодня», за 5 ч
+    assert not confirmation_due(visit, datetime(2026, 11, 19, 23, 0, tzinfo=tz))  # ночью не пишем

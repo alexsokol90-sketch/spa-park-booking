@@ -7,3 +7,8 @@ __pycache__/
 .coverage
 coverage.xml
 .DS_Store
+
+# Рабочие заметки команды (не для публичного репозитория)
+CLAUDE.md
+CONTEXT.md
+RULES.md

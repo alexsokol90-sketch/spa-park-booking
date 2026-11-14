@@ -94,7 +94,7 @@ async def chat_inbox(uid: int):
 
 @app.get("/api/health")
 async def health():
-    return {"ok": True, "ai": ai.enabled(), "channels": notify.active_channels(), "model": config.MODEL}
+    return {"ok": True, "ai": ai.provider(), "channels": notify.active_channels()}
 
 
 # ---------- администратор ----------

@@ -9,8 +9,9 @@ import re
 from datetime import date, datetime
 
 import anthropic
+import httpx
 
-from . import config, db, kb
+from . import config, db, gigachat, kb
 from .notify import Out
 from .texts import fmt_when
 
@@ -72,8 +73,16 @@ TOOLS = [
 ]
 
 
+def provider() -> str | None:
+    if config.LLM_PROVIDER == "gigachat" and gigachat.enabled():
+        return "gigachat"
+    if _client is not None:
+        return "claude"
+    return None
+
+
 def enabled() -> bool:
-    return _client is not None
+    return provider() is not None
 
 
 async def _catalog_text() -> str:
@@ -175,6 +184,28 @@ async def _history(ctx, text: str) -> list[dict]:
 
 async def agent_reply(ctx, text: str) -> bool:
     """Ответ модели с вызовом инструментов. False — модель недоступна, нужен запасной путь."""
+    if provider() == "gigachat":
+        return await _gigachat_reply(ctx, text)
+    return await _claude_reply(ctx, text)
+
+
+async def _gigachat_reply(ctx, text: str) -> bool:
+    ui_before = len(ctx.out)
+
+    async def run_tool(name: str, args: dict) -> str:
+        return await _run_tool(ctx, name, args)
+
+    try:
+        final_text = await gigachat.run_agent(await system_prompt(ctx), await _history(ctx, text), TOOLS, run_tool, MAX_STEPS)
+    except (httpx.HTTPError, KeyError, ValueError) as exc:
+        log.warning("GigaChat error: %s", exc)
+        return len(ctx.out) > ui_before
+    if final_text:
+        ctx.out.insert(ui_before, Out(text=final_text))
+    return len(ctx.out) > ui_before
+
+
+async def _claude_reply(ctx, text: str) -> bool:
     messages = await _history(ctx, text)
     system = await system_prompt(ctx)
     ui_before = len(ctx.out)
@@ -204,6 +235,8 @@ async def agent_reply(ctx, text: str) -> bool:
 
 async def generate_text(prompt: str, max_tokens: int = 600) -> str | None:
     """Свободная генерация (маркетинговые тексты). None — модель недоступна."""
+    if provider() == "gigachat":
+        return await gigachat.generate(prompt, max_tokens)
     if _client is None:
         return None
     try:

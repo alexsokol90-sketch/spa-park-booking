@@ -11,6 +11,11 @@ load_dotenv(ROOT / ".env")
 
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "").strip()
 MODEL = os.getenv("MODEL", "claude-sonnet-5-5")
+# Провайдер модели: gigachat (размещение в РФ) или claude. По умолчанию — тот, для которого задан ключ.
+GIGACHAT_AUTH_KEY = os.getenv("GIGACHAT_AUTH_KEY", "").strip()
+GIGACHAT_SCOPE = os.getenv("GIGACHAT_SCOPE", "GIGACHAT_API_PERS")
+GIGACHAT_MODEL = os.getenv("GIGACHAT_MODEL", "GigaChat")
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gigachat" if GIGACHAT_AUTH_KEY else "claude")
 MAX_BOT_TOKEN = os.getenv("MAX_BOT_TOKEN", "").strip()
 MAX_API = os.getenv("MAX_API", "https://platform-api2.max.ru")
 MAX_ADMIN_CHAT_ID = os.getenv("MAX_ADMIN_CHAT_ID", "").strip()

@@ -56,5 +56,6 @@ CONFIRM_REQUEST_TIME = time(10, 0)
 NO_ANSWER_REPORT_TIME = time(15, 0)
 BIRTHDAY_TIME = time(11, 0)
 ESCALATION_RENOTIFY_MIN = 5
-CONSENT_VERSION = "pd-2026-11-v1"
+CONSENT_VERSION = "pd-2026-11-v1"  # служебный код редакции — хранится в БД с каждой отметкой
+CONSENT_EDITION = "14.11.2026"  # то, что видит гость: «редакция от …»
 PAYMENT_URL = os.getenv("PAYMENT_URL", "https://spapark86.ru/")

@@ -359,6 +359,8 @@
   }
 
   const KIND = { pd: "Обработка ПДн", rules: "Правила и противопоказания", ads: "Рекламные сообщения" };
+  const CHANNEL = { reception: "на ресепшене", web: "на сайте", max: "в MAX", tg: "в Telegram", vk: "во ВКонтакте" };
+  const EDITION = { "pd-2026-11-v1": "14.11.2026" };
   async function openGuest(id) {
     const g = await api("api/admin/guests/" + id);
     const dl = h("dl", { class: "kv" });
@@ -367,7 +369,7 @@
       ["Рассылки", g.unsubscribed ? "отписан" : "—"]].forEach(([k, v]) => dl.append(h("dt", { text: k }), h("dd", { text: v })));
     const consents = h("div", {}, g.consents.map((c) => h("div", { class: "consent-row" }, [
       h("span", { class: c.granted ? "ok" : "no", text: (c.granted ? "✓ " : "✕ ") + KIND[c.kind] }),
-      " · " + fmtDate(c.created_at) + " " + fmtTime(c.created_at) + " · канал: " + c.channel + " · версия: " + c.text_version,
+      " · " + fmtDate(c.created_at) + " " + fmtTime(c.created_at) + " · " + (CHANNEL[c.channel] || c.channel) + " · редакция от " + (EDITION[c.text_version] || c.text_version),
     ])));
     const visits = h("div", {}, g.bookings.slice(0, 10).map((b) => h("div", { class: "consent-row", text: fmtDate(b.starts_at) + " · " + b.program_name + " · " + b.master_name + " · " + (STATUS[b.status] || b.status) + " · " + b.price_total + " ₽" })));
     drawer.innerHTML = "";
@@ -420,7 +422,8 @@
     const hist = document.getElementById("mkHistory");
     hist.innerHTML = "";
     hist.append(h("tr", {}, ["Рассылка", "Сегмент", "Отправлено", "Когда"].map((t) => h("th", { text: t }))));
-    data.history.forEach((c) => hist.append(h("tr", {}, [c.name, c.segment, c.sent, c.sent_at ? fmtDate(c.sent_at) + " " + fmtTime(c.sent_at) : "—"].map((t) => h("td", { text: t })))));
+    const segTitle = Object.fromEntries(data.segments.map((sg) => [sg.key, sg.title]));
+    data.history.forEach((c) => hist.append(h("tr", {}, [c.name.replace(/^Рассылка: \S+$/, "Рассылка"), segTitle[c.segment] || c.segment, c.sent, c.sent_at ? fmtDate(c.sent_at) + " " + fmtTime(c.sent_at) : "—"].map((t) => h("td", { text: t })))));
   }
   loaders.marketing = loadMarketing;
 

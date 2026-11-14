@@ -311,7 +311,7 @@ async def show_consents(ctx: Ctx) -> None:
         ctx.state["cb"] = boxes
     buttons = [[(("☑ " if boxes[k] else "☐ ") + ctx.tr(f"cb_{k}"), f"cb:{k}")] for k in ("pd", "rules", "ads")]
     buttons.append([(ctx.tr("btn_consent_texts"), "cbtexts"), (ctx.tr("btn_continue"), "cbok")])
-    ctx.say(ctx.tr("consent_title", version=config.CONSENT_VERSION), buttons)
+    ctx.say(ctx.tr("consent_title"), buttons)
 
 
 async def p_checkbox(ctx: Ctx, kind: str) -> None:

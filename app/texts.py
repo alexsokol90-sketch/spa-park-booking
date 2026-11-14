@@ -68,11 +68,11 @@ T = {
     "need_consent": {
         "ru": (
             "Последний шаг: подтвердите согласие на обработку персональных данных и ознакомление "
-            "с правилами посещения и противопоказаниями (версия {version})."
+            "с правилами посещения и противопоказаниями (редакция от {version})."
         ),
         "en": (
             "One last step: please confirm your consent to personal data processing and that you have read "
-            "the visiting rules and contraindications (version {version})."
+            "the visiting rules and contraindications (edition of {version})."
         ),
     },
     "btn_consent_yes": {"ru": "Согласен(на)", "en": "I agree"},
@@ -182,8 +182,8 @@ T = {
     },
     "need_name": {"ru": "Как к вам обращаться?", "en": "How may I address you?"},
     "consent_title": {
-        "ru": "Отметьте, пожалуйста, согласия (версия {version}). Первые два нужны для записи, третье — по желанию.",
-        "en": "Please tick the consents (version {version}). The first two are required for booking, the third is optional.",
+        "ru": "Отметьте, пожалуйста, согласия (редакция от {version}). Первые два нужны для записи, третье — по желанию.",
+        "en": "Please tick the consents (edition of {version}). The first two are required for booking, the third is optional.",
     },
     "cb_pd": {"ru": "Обработка персональных данных", "en": "Personal data processing"},
     "cb_rules": {"ru": "Правила и противопоказания", "en": "Rules & contraindications"},

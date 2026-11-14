@@ -49,7 +49,7 @@ async def segment_guests(segment: str) -> list[dict]:
     sql = f"""SELECT g.id, g.name, g.phone, g.max_user_id, g.lang, {LAST_VISIT} AS last_visit,
                      {LAST_PROGRAM} AS last_program
               FROM guests g WHERE g.phone IS NOT NULL AND {ADS_OK} AND ({seg['where']})
-              ORDER BY g.name"""  # noqa: S608 — условия берутся только из словаря SEGMENTS
+              ORDER BY g.name"""
     return await db.query(sql)
 
 

@@ -16,7 +16,8 @@ HIGH_PRIORITY = {"complaint"}
 async def create(guest_id: int, reason: str, details: str = "") -> dict:
     priority = "high" if reason in HIGH_PRIORITY else "normal"
     existing = await db.query_one(
-        "SELECT * FROM escalations WHERE guest_id = %s AND status = 'new' ORDER BY id DESC LIMIT 1", (guest_id,)
+        "SELECT * FROM escalations WHERE guest_id = %s AND reason = %s AND status = 'new' ORDER BY id DESC LIMIT 1",
+        (guest_id, reason),
     )
     if existing:
         row = await db.query_one(
@@ -74,4 +75,5 @@ async def open_list() -> list[dict]:
     )
     for row in rows:
         row["history"] = await guests.history(row["guest_id"], limit=40)
+        row["reason_title"] = REASONS.get(row["reason"], row["reason"])
     return rows

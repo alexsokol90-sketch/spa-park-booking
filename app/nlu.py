@@ -45,7 +45,7 @@ SPACE_STEMS = {
 
 DAY_WORDS = {"сегодня": 0, "today": 0, "завтра": 1, "tomorrow": 1, "послезавтра": 2}
 WEEKDAY_STEMS = ["понед", "вторн", "сред", "четв", "пятн", "субб", "воскр"]
-TIME_RE = re.compile(r"(?:\bв\s*|\bat\s*|\bна\s*)?\b([01]?\d|2[0-3])(?:[:.](\d{2}))?\s*(?:час|ч\b|:00)?", re.I)
+TIME_RE = re.compile(r"(?:\bв\s*|\bat\s*|\bна\s*)?\b([01]?\d|2[0-3])(?:[:.](\d{2}))?\s*(?:час|ч\b|:00)?", re.IGNORECASE)
 DATE_RE = re.compile(r"\b(\d{1,2})[./](\d{1,2})\b")
 
 
@@ -61,7 +61,7 @@ class Parsed:
 
 def _first_match(text: str, patterns: list[tuple[str, str]]) -> str | None:
     for name, pattern in patterns:
-        if re.search(pattern, text, re.I):
+        if re.search(pattern, text, re.IGNORECASE):
             return name
     return None
 

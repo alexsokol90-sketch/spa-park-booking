@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>СПА-парк — администратор</title>
+<link rel="stylesheet" href="static/admin.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">СПА-парк <span>ресепшен</span></div>
+  <nav class="tabs" id="tabs">
+    <button type="button" data-tab="grid" class="active">Сетка</button>
+    <button type="button" data-tab="esc">Запросы <b id="escCount" class="badge" hidden></b></button>
+    <button type="button" data-tab="calls">Обзвон</button>
+    <button type="button" data-tab="guests">Гости</button>
+    <button type="button" data-tab="marketing">Маркетинг</button>
+    <button type="button" data-tab="stock">Расход на день</button>
+  </nav>
+  <div class="live" id="live" title="Обновление сетки">● онлайн</div>
+</header>
+
+<main>
+  <section id="tab-grid" class="tab active">
+    <div class="toolbar">
+      <button type="button" id="prevDay">←</button>
+      <input type="date" id="day">
+      <button type="button" id="nextDay">→</button>
+      <button type="button" id="today">Сегодня</button>
+      <span class="legend"><i class="lg confirmed"></i>бронь <i class="lg hold"></i>захват (15 мин) <i class="lg cleanup"></i>уборка <i class="lg done"></i>прошедшие</span>
+      <span class="hint">Кликните по свободному месту, чтобы записать гостя</span>
+    </div>
+    <div class="grid-wrap"><div id="grid" class="grid"></div></div>
+  </section>
+
+  <section id="tab-esc" class="tab">
+    <h2>Переводы на администратора</h2>
+    <div id="escList" class="cards"></div>
+  </section>
+
+  <section id="tab-calls" class="tab">
+    <h2>Подтверждение визитов на завтра</h2>
+    <p class="muted">В 10:00 ассистент сам просит гостей подтвердить завтрашний визит и выбрать предзаказ.
+      В 15:00 здесь остаются только те, кто не ответил, — им нужно позвонить.</p>
+    <div class="row-actions">
+      <button type="button" data-job="visit_confirm">Отправить запросы сейчас (задача 10:00)</button>
+      <button type="button" data-job="no_answer">Сформировать список сейчас (задача 15:00)</button>
+    </div>
+    <table class="table" id="callsTable"></table>
+  </section>
+
+  <section id="tab-guests" class="tab">
+    <h2>База гостей</h2>
+    <input type="search" id="guestQ" placeholder="Имя или телефон" class="search">
+    <table class="table" id="guestsTable"></table>
+  </section>
+
+  <section id="tab-marketing" class="tab">
+    <h2>Маркетинг: возврат гостей</h2>
+    <p class="muted">Сообщения получают только гости с согласием на рекламные сообщения. Перед отправкой — обязательный предпросмотр.</p>
+    <div class="mk">
+      <div class="mk-left">
+        <div id="segments" class="segments"></div>
+        <label>Цель рассылки (для генерации ИИ)<input id="mkGoal" placeholder="например: пригласить на новую программу в «Японии»"></label>
+        <label>Текст (переменные: {name}, {last_program})<textarea id="mkText" rows="5"></textarea></label>
+        <div class="row-actions">
+          <button type="button" id="mkGen">Сгенерировать текст ИИ</button>
+          <button type="button" id="mkPreview">Предпросмотр</button>
+          <button type="button" id="mkSend" class="primary" disabled>Отправить</button>
+        </div>
+      </div>
+      <div class="mk-right">
+        <h3>Предпросмотр</h3>
+        <div id="mkPreviewList" class="preview"></div>
+        <h3>История рассылок</h3>
+        <table class="table" id="mkHistory"></table>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-stock" class="tab">
+    <h2>Расход предзаказов на день</h2>
+    <p class="muted">Чай, добавки в ванну и прочие опции, которые гости выбрали в боте.</p>
+    <table class="table" id="stockTable"></table>
+  </section>
+</main>
+
+<aside id="drawer" class="drawer" hidden></aside>
+<div id="modal" class="modal" hidden><div class="modal-box" id="modalBox"></div></div>
+<div id="toasts" class="toasts"></div>
+<script src="static/admin.js"></script>
+</body>
+</html>

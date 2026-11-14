@@ -4,6 +4,7 @@ import logging
 import secrets
 from contextlib import asynccontextmanager
 from datetime import date, datetime
+from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
@@ -11,7 +12,20 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import ai, booking, config, db, dialog, escalation, events, guests, marketing, max_bot, notify, scheduler
+from . import (
+    ai,
+    booking,
+    config,
+    db,
+    dialog,
+    escalation,
+    events,
+    guests,
+    marketing,
+    max_bot,
+    notify,
+    scheduler,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
 WEB = config.ROOT / "web"
@@ -32,7 +46,7 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(title=config.PROJECT_NAME, lifespan=lifespan)
 
 
-def require_admin(creds: HTTPBasicCredentials | None = Depends(security)) -> None:
+def require_admin(creds: Annotated[HTTPBasicCredentials | None, Depends(security)]) -> None:
     if not config.ADMIN_PASSWORD:
         return
     ok = creds is not None and secrets.compare_digest(creds.username, config.ADMIN_USER) and secrets.compare_digest(
@@ -253,7 +267,7 @@ async def admin_guests(q: str = ""):
                   (SELECT count(*) FROM bookings b WHERE b.guest_id = g.id AND b.status = 'completed') AS visits,
                   {marketing.ADS_OK} AS ads_ok
            FROM guests g WHERE g.phone IS NOT NULL AND (g.name ILIKE %s OR g.phone LIKE %s)
-           ORDER BY g.name LIMIT 100""",  # noqa: S608 — подставляются только константы модуля
+           ORDER BY g.name LIMIT 100""",
         (like, like),
     )
     return {"items": rows}

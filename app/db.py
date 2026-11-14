@@ -36,9 +36,8 @@ async def tx():
     """Соединение с открытой транзакцией: commit при успехе, rollback при ошибке."""
     if _pool is None:
         raise RuntimeError("Пул соединений не открыт")
-    async with _pool.connection() as conn:
-        async with conn.transaction():
-            yield conn
+    async with _pool.connection() as conn, conn.transaction():
+        yield conn
 
 
 async def fetch(conn: AsyncConnection, sql: str, params: Any = None) -> list[dict]:

@@ -136,8 +136,8 @@ async def handle(upd: dict) -> None:
         if kind == "message_created" and "message" in upd:
             await _on_message(upd["message"])
         elif kind == "message_created":
-            # Формат без поля message (встречается у голосовых) — фиксируем структуру для разбора.
-            log.warning("message_created without message: %s", json.dumps(_shape(upd), ensure_ascii=False)[:1500])
+            # Так MAX присылает голосовые: без отправителя и без аудио — ответить некому (ограничение платформы).
+            log.info("MAX: событие без сообщения (вероятно, голосовое): %s", json.dumps(_shape(upd), ensure_ascii=False)[:300])
         elif kind == "message_callback":
             await _on_callback(upd["callback"])
         elif kind == "bot_started":

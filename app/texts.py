@@ -12,6 +12,10 @@ T = {
         "ru": "Здравствуйте! Я ассистент СПА-парка. Помогу подобрать программу, записаться на свободное время и отвечу на вопросы. Чем могу помочь?",
         "en": "Hello! I'm the SPA-park assistant. I can help you choose a program, book a free time slot and answer your questions. How can I help?",
     },
+    "max_voice_note": {
+        "ru": "Пишите своими словами или выбирайте кнопки. Голосовые сообщения MAX пока не передаёт ботам — их я, к сожалению, не услышу.",
+        "en": "Type in your own words or use the buttons. MAX doesn't pass voice messages to bots yet, so I can't hear them.",
+    },
     "night_note": {
         "ru": "Сейчас ночь, но записаться можно прямо сейчас. Администратор на связи с 10:00.",
         "en": "It's night now, but you can book right away. Our administrator is available from 10:00.",

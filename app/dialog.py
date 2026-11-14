@@ -109,6 +109,8 @@ async def greet(ctx: Ctx) -> None:
     ctx.state.pop("master_id", None)
     name = ctx.guest.get("name")
     text = ctx.tr("greet_known", name=name) if name else ctx.tr("greet_new")
+    if (ctx.guest.get("max_user_id") or 0) > 0:
+        text += "\n\n" + ctx.tr("max_voice_note")
     if is_night():
         text += "\n\n" + ctx.tr("night_note")
     ctx.say(text, main_menu(ctx))

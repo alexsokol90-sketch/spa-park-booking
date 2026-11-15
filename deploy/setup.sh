@@ -10,7 +10,7 @@ DB_PASSWORD="${DB_PASSWORD:-$(openssl rand -hex 16)}"
 
 echo "== Пакеты"
 apt-get update -q
-DEBIAN_FRONTEND=noninteractive apt-get install -y -q postgresql postgresql-contrib python3-venv python3-pip \
+DEBIAN_FRONTEND=noninteractive apt-get install -y -q postgresql postgresql-contrib python3-venv python3-pip ffmpeg \
     debian-keyring debian-archive-keyring apt-transport-https curl ufw
 if ! command -v caddy >/dev/null; then
     curl -1sLf https://dl.cloudsmith.io/public/caddy/stable/gpg.key | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg

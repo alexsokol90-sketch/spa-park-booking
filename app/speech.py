@@ -3,6 +3,7 @@
 Голос не хранится: файл скачивается в память, передаётся на распознавание и сразу отбрасывается.
 В диалог попадает только текст. Подсказка с терминами помогает модели правильно писать названия программ.
 """
+import asyncio
 import logging
 
 import httpx
@@ -22,10 +23,33 @@ def enabled() -> bool:
     return bool(config.LLM_BASE_URL and config.LLM_API_KEY)
 
 
+async def to_ogg(audio: bytes) -> bytes | None:
+    """Любой формат браузера (webm, mp4 с iPhone, wav) → ogg/opus, который стабильно принимает распознавание."""
+    if audio[:4] == b"OggS":
+        return audio
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "ffmpeg", "-loglevel", "error", "-i", "pipe:0", "-vn", "-ac", "1", "-ar", "16000", "-c:a", "libopus", "-f", "ogg", "pipe:1",
+            stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        out, err = await asyncio.wait_for(proc.communicate(audio), timeout=30)
+    except (OSError, TimeoutError) as exc:
+        log.warning("ffmpeg failed: %s", exc)
+        return None
+    if proc.returncode != 0 or not out:
+        log.warning("ffmpeg error: %s", err.decode(errors="ignore")[:200])
+        return None
+    return out
+
+
 async def transcribe(audio: bytes, filename: str = "voice.ogg") -> str | None:
     """Текст голосового сообщения или None, если распознать не удалось."""
     if not enabled() or not audio or len(audio) > MAX_BYTES:
         return None
+    audio = await to_ogg(audio)
+    if not audio:
+        return None
+    filename = "voice.ogg"
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
             resp = await client.post(
@@ -34,7 +58,9 @@ async def transcribe(audio: bytes, filename: str = "voice.ogg") -> str | None:
                 data={"model": config.STT_MODEL, "language": "ru", "prompt": VOCABULARY},
                 files={"file": (filename, audio)},
             )
-            resp.raise_for_status()
+            if resp.status_code >= 400:
+                log.warning("speech recognition HTTP %s: %s", resp.status_code, resp.text[:200])
+                return None
             text = (resp.json().get("text") or "").strip()
     except (httpx.HTTPError, ValueError) as exc:
         log.warning("speech recognition failed: %s", exc)

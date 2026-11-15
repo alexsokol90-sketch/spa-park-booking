@@ -596,14 +596,50 @@ async def filter_fields():
     }
 
 
+@app.get("/api/admin/clients/{guest_id}", dependencies=FULL)
+async def client_card(guest_id: int, user: Annotated[dict, Depends(require_admin)]):
+    card = await loyalty.client_card(guest_id)
+    if not card:
+        raise HTTPException(404, "Клиент не найден")
+    await privacy.audit(user["name"], "view_guest", guest_id, "карточка клиента")
+    return card
+
+
+class ClientIn(BaseModel):
+    name: str | None = Field(default=None, max_length=60)
+    surname: str | None = Field(default=None, max_length=60)
+    phone: str = Field(max_length=30)
+    gender: str | None = Field(default=None, max_length=1)
+    birth_date: date | None = None
+    card_level: str = Field(default="gold", pattern="^(gold|platinum)$")
+    unsubscribed: bool = False
+    segments: str = Field(default="", max_length=300)
+
+
+@app.put("/api/admin/clients/{guest_id}", dependencies=FULL)
+async def client_update(guest_id: int, inp: ClientIn, user: Annotated[dict, Depends(require_admin)]):
+    try:
+        await loyalty.update_client(guest_id, inp.model_dump())
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    await privacy.audit(user["name"], "edit_guest", guest_id, "правка карточки")
+    return await loyalty.client_card(guest_id)
+
+
 class BonusIn(BaseModel):
     delta: int = Field(ge=-100000, le=100000)
     note: str = Field(default="корректировка", max_length=200)
 
 
 @app.post("/api/admin/guests/{guest_id}/bonus", dependencies=FULL)
-async def guest_bonus(guest_id: int, inp: BonusIn):
-    return {"balance": await loyalty.add_bonus(guest_id, inp.delta, "adjust", inp.note)}
+async def guest_bonus(guest_id: int, inp: BonusIn, user: Annotated[dict, Depends(require_admin)]):
+    if inp.delta < 0:
+        current = await db.query_one("SELECT loyalty_points FROM guests WHERE id = %s", (guest_id,))
+        if not current or current["loyalty_points"] < -inp.delta:
+            raise HTTPException(400, "Недостаточно бонусов для списания")
+    balance = await loyalty.add_bonus(guest_id, inp.delta, "gift" if inp.delta > 0 else "redeem", f"{inp.note} ({user['name']})")
+    await privacy.audit(user["name"], "bonus", guest_id, f"{inp.delta:+d} бонусов: {inp.note}")
+    return {"balance": balance}
 
 
 class VisitIn(BaseModel):

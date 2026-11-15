@@ -176,12 +176,77 @@
     table.innerHTML = "";
     document.getElementById("cliCount").textContent = "Найдено: " + data.items.length;
     table.append(h("tr", {}, ["Клиент", "Телефон", "Пол", "Возраст", "Бонусы", "Списано", "Покупок", "Средний чек", "Выручка за период", "Первая", "Последняя", "Источник"].map((t) => h("th", { text: t }))));
-    data.items.forEach((c) => table.append(h("tr", {}, [
+    data.items.forEach((c) => table.append(h("tr", { onclick: () => openClient(c.id) }, [
       (c.name || "—") + (c.surname ? " " + c.surname : ""), c.phone, GENDER[c.gender] || "—", c.age ?? "—", c.bonus_balance, c.bonus_spent,
       c.purchases, rub(c.avg_check), rub(c.revenue), c.first_purchase ? fmtDate(c.first_purchase) : "—",
       c.last_purchase ? fmtDate(c.last_purchase) : "—", SOURCE[c.reg_source] || c.reg_source,
     ].map((t) => h("td", { text: t })))));
   }
+  // ---------- карточка клиента ----------
+  const VST = { confirmed: "запись", completed: "пришёл", no_show: "не пришёл", cancelled: "отменена" };
+  const BTX = { accrual: "кешбэк за визит", redeem: "списание", expire: "сгорание", gift: "подарок / начисление", referral: "за друга", adjust: "корректировка" };
+  const CKIND = { pd: "Обработка ПДн", rules: "Правила", ads: "Реклама" };
+
+  async function openClient(id) {
+    const c = await api("api/admin/clients/" + id);
+    const drawer = document.getElementById("drawer");
+    drawer.classList.add("wide-drawer");
+    const f = {
+      name: h("input", { value: c.name || "" }), surname: h("input", { value: c.surname || "" }), phone: h("input", { value: c.phone || "" }),
+      gender: h("select", {}, [["", "—"], ["f", "Женщина"], ["m", "Мужчина"]].map(([v, t]) => h("option", { value: v, text: t, selected: (c.gender || "") === v }))),
+      birth_date: h("input", { type: "date", value: c.birth_date || "" }),
+      card_level: h("select", {}, [["gold", "Золотая (5%)"], ["platinum", "Платиновая (10%)"]].map(([v, t]) => h("option", { value: v, text: t, selected: c.card_level === v }))),
+      segments: h("input", { value: c.segments || "", placeholder: "через запятую" }),
+      unsubscribed: h("input", { type: "checkbox" }),
+    };
+    f.unsubscribed.checked = !!c.unsubscribed;
+    const save = async () => {
+      try {
+        await api("api/admin/clients/" + id, { method: "PUT", body: { name: f.name.value, surname: f.surname.value, phone: f.phone.value,
+          gender: f.gender.value || null, birth_date: f.birth_date.value || null, card_level: f.card_level.value, segments: f.segments.value, unsubscribed: f.unsubscribed.checked } });
+        toast("Карточка сохранена"); openClient(id);
+      } catch (err) { toast(err.message, "escalation"); }
+    };
+    const amount = h("input", { type: "number", min: 1, value: 500, style: "width:110px" });
+    const note = h("input", { placeholder: "причина (необязательно)", style: "flex:1" });
+    const bonus = async (sign) => {
+      try {
+        const r = await api("api/admin/guests/" + id + "/bonus", { method: "POST", body: { delta: sign * Math.abs(Number(amount.value)), note: note.value || (sign > 0 ? "начисление администратором" : "списание администратором") } });
+        toast((sign > 0 ? "Начислено" : "Списано") + ". Баланс: " + r.balance); openClient(id);
+      } catch (err) { toast(err.message, "escalation"); }
+    };
+    const row = (label, el) => h("label", { class: "crow" }, [h("span", { text: label }), el]);
+    const table = (head, rows) => h("table", { class: "table small" }, [h("tr", {}, head.map((x) => h("th", { text: x }))), ...rows.map((r) => h("tr", {}, r.map((x) => h("td", { text: x }))))]);
+    drawer.innerHTML = "";
+    drawer.append(
+      h("button", { type: "button", class: "close", text: "✕", onclick: () => { drawer.hidden = true; drawer.classList.remove("wide-drawer"); } }),
+      h("h3", { text: ((c.name || "Гость") + " " + (c.surname || "")).trim() }),
+      h("div", { class: "kpis" }, [
+        h("div", { class: "kpi" }, [h("b", { text: c.bonus_balance }), h("span", { text: "бонусов" })]),
+        h("div", { class: "kpi" }, [h("b", { text: c.purchases }), h("span", { text: "визитов" })]),
+        h("div", { class: "kpi" }, [h("b", { text: rub(c.avg_check) }), h("span", { text: "средний чек" })]),
+        h("div", { class: "kpi" }, [h("b", { text: c.last_purchase ? fmtDate(c.last_purchase) : "—" }), h("span", { text: "последний визит" })]),
+      ]),
+      h("h4", { text: "Данные клиента" }),
+      h("div", { class: "cgrid" }, [row("Имя", f.name), row("Фамилия", f.surname), row("Телефон", f.phone), row("Пол", f.gender),
+        row("Дата рождения", f.birth_date), row("Карта", f.card_level), row("Сегменты", f.segments),
+        h("label", { class: "check" }, [f.unsubscribed, "отписан от рассылок"])]),
+      h("p", { class: "muted", text: "Источник: " + (SOURCE[c.reg_source] || c.reg_source) + " · мессенджер: " + (CHANNEL[c.reg_channel] || c.reg_channel) + " · промокод: " + (c.referral_code || "—") + " · согласие на рекламу: " + (c.ads_ok ? "есть" : "нет") }),
+      h("div", { class: "row-actions" }, [h("button", { type: "button", class: "primary", text: "Сохранить", onclick: save })]),
+      h("h4", { text: "Бонусы" }),
+      h("div", { class: "row-actions" }, [amount, note, h("button", { type: "button", class: "primary", text: "+ Начислить", onclick: () => bonus(1) }), h("button", { type: "button", class: "danger", text: "− Списать", onclick: () => bonus(-1) })]),
+      table(["Когда", "Операция", "Бонусы", "Комментарий"], c.bonus_history.map((b) => [fmtDate(b.created_at), BTX[b.kind] || b.kind, (b.delta > 0 ? "+" : "") + b.delta, b.note + (b.expires_at ? " · до " + fmtDate(b.expires_at) : "")])),
+      h("h4", { text: "История визитов" }),
+      table(["Дата", "Программа", "Мастер", "Статус", "Оплачено", "Бонусами"], c.visits.map((v) => [fmtDate(v.starts_at) + " " + fmtTime(v.starts_at), v.program_name + (v.preorders ? " · " + v.preorders : ""), v.master_name, VST[v.status] || v.status, rub(v.paid), v.bonus_spent || 0])),
+      h("h4", { text: "Согласия" }),
+      table(["Когда", "Согласие", "Статус", "Канал"], c.consents.map((x) => [fmtDate(x.created_at), CKIND[x.kind], x.granted ? "дано" : "отозвано", CHANNEL[x.channel] || x.channel])),
+      h("h4", { text: "Переписка с ассистентом" }),
+      h("div", { class: "history" }, c.messages.slice().reverse().map((m) => h("p", { class: m.role, text: (m.role === "guest" ? "Гость: " : m.role === "admin" ? "Админ: " : "Бот: ") + m.text }))),
+      h("div", { class: "actions" }, [h("a", { class: "btnlink", href: "api/admin/guests/" + id + "/export", text: "Выгрузить данные (JSON)" })])
+    );
+    drawer.hidden = false;
+  }
+
   document.getElementById("cliAddFilter").onclick = async () => { await meta(); filterRow(document.getElementById("cliFilters")); };
   document.getElementById("cliSearch").onclick = searchClients;
   loaders.clients = loadClients;

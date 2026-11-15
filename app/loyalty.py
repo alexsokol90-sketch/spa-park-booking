@@ -320,3 +320,67 @@ def _effectiveness(rows: list[dict]) -> dict:
         "revenue_per_participant": total_revenue / participants if participants else 0,
         "revenue_per_active": total_revenue / len(active) if active else 0,
     }
+
+
+# ---------- карточка клиента ----------
+
+async def client_card(guest_id: int) -> dict | None:
+    """Всё о клиенте: профиль, показатели, визиты, движения бонусов, согласия, переписка, сегменты."""
+    base = await client(guest_id)
+    if not base:
+        return None
+    guest = await db.query_one(
+        "SELECT unsubscribed, lang, loyalty_card, referred_by, created_at FROM guests WHERE id = %s", (guest_id,)
+    )
+    base.update(guest)
+    base["visits"] = await db.query(
+        f"""SELECT b.id, b.starts_at, b.status, b.guests_count, b.price_total, {REVENUE} AS paid, b.bonus_spent,
+                   b.payment_method, p.name AS program_name, s.name AS space_name, m.name AS master_name,
+                   COALESCE((SELECT string_agg(i.name, ', ') FROM booking_preorders bp JOIN preorder_items i ON i.id = bp.item_id
+                             WHERE bp.booking_id = b.id), '') AS preorders
+            FROM bookings b JOIN programs p ON p.id = b.program_id JOIN spaces s ON s.id = b.space_id
+            JOIN masters m ON m.id = b.master_id
+            WHERE b.guest_id = %s AND b.status IN ('confirmed', 'completed', 'no_show', 'cancelled')
+            ORDER BY b.starts_at DESC LIMIT 100""",
+        (guest_id,),
+    )
+    base["bonus_history"] = await db.query(
+        "SELECT delta, kind, note, expires_at, created_at FROM bonus_tx WHERE guest_id = %s ORDER BY created_at DESC LIMIT 100",
+        (guest_id,),
+    )
+    base["consents"] = await db.query(
+        "SELECT kind, granted, channel, created_at FROM consents WHERE guest_id = %s ORDER BY created_at DESC", (guest_id,)
+    )
+    base["messages"] = await db.query(
+        "SELECT role, text, created_at FROM messages WHERE guest_id = %s ORDER BY id DESC LIMIT 40", (guest_id,)
+    )
+    return base
+
+
+async def update_client(guest_id: int, data: dict) -> dict:
+    """Правка карточки администратором. Телефон нормализуется и проверяется на уникальность (без дублей)."""
+    from . import guests as guests_mod
+
+    phone = guests_mod.normalize_phone(data.get("phone") or "")
+    if not phone:
+        raise ValueError("Неверный телефон")
+    clash = await db.query_one("SELECT id FROM guests WHERE phone = %s AND id <> %s", (phone, guest_id))
+    if clash:
+        raise ValueError("Гость с таким телефоном уже есть в базе")
+    gender = data.get("gender") if data.get("gender") in ("f", "m") else None
+    level = data.get("card_level") if data.get("card_level") in CASHBACK else "gold"
+    row = await db.query_one(
+        """UPDATE guests SET name = %s, surname = %s, phone = %s, gender = %s, birth_date = %s, card_level = %s,
+               unsubscribed = %s WHERE id = %s RETURNING id""",
+        ((data.get("name") or "").strip()[:60] or None, (data.get("surname") or "").strip()[:60] or None, phone, gender,
+         data.get("birth_date") or None, level, bool(data.get("unsubscribed")), guest_id),
+    )
+    if not row:
+        raise ValueError("Клиент не найден")
+    segments = {s.strip()[:40] for s in (data.get("segments") or "").split(",") if s.strip()}
+    await db.query("DELETE FROM guest_segments WHERE guest_id = %s RETURNING guest_id", (guest_id,))
+    for seg in segments:
+        await db.query("INSERT INTO guest_segments (guest_id, segment) VALUES (%s, %s) ON CONFLICT DO NOTHING RETURNING guest_id",
+                       (guest_id, seg))
+    events.publish("clients")
+    return row

@@ -140,7 +140,7 @@ button:disabled { opacity: .5; cursor: default; }
 .stat.good b { color: var(--accent); }
 .stat.bad b { color: var(--danger); }
 .stat span { color: var(--muted); font-size: 12px; }
-.tab-group { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 2px 0 10px; align-self: center; }
+.tab-group { width: 1px; height: 22px; background: var(--line); margin: 0 8px; align-self: center; }
 .tabs { flex-wrap: wrap; row-gap: 2px; }
 .tabs button { padding: 6px 9px; font-size: 13px; }
 h2.inline { margin: 0 12px 0 0; }

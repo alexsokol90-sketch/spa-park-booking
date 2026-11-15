@@ -65,6 +65,8 @@ async def add_security_headers(request: Request, call_next):
     response = await call_next(request)
     for name, value in security.security_headers(request.url.path).items():
         response.headers.setdefault(name, value)
+    if request.url.path.endswith((".js", ".css", ".html")) or request.url.path in ("/", "/admin", "/links", "/legal"):
+        response.headers["Cache-Control"] = "no-cache"  # после обновления браузер сразу берёт новую версию
     return response
 
 

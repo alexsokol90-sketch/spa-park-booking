@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Кнопка «Забронировать онлайн» — СПА-парк</title>
 <link rel="icon" href="data:,">
-<link rel="stylesheet" href="static/site.css">
+<link rel="stylesheet" href="static/site.css?v=11150351">
 <style>
   .doc-top { background: var(--graphite); color: #fff; padding: 22px 0; }
   .doc-top .wrap { display: flex; align-items: center; gap: 24px; }
@@ -61,7 +61,7 @@
 
   <h2>2. Кнопка на сайте spapark86.ru</h2>
   <p>Вставьте одну строку перед <code>&lt;/body&gt;</code> (в Битриксе — «Настройки → Настройки продукта → Сайты → шаблон» или в футер шаблона):</p>
-  <pre id="snippet">&lt;script src="https://spa.5-42-98-218.sslip.io/static/widget.js" async&gt;&lt;/script&gt;</pre>
+  <pre id="snippet">&lt;script src="https://spa.5-42-98-218.sslip.io/static/widget.js?v=11150351" async&gt;&lt;/script&gt;</pre>
   <button class="btn btn-gold copy" type="button" data-copy="snippet">Скопировать код</button>
   <p class="muted">На всех страницах появится золотая кнопка «Забронировать онлайн» в фирменном стиле; помощник открывается поверх сайта, гость никуда не уходит. Свою кнопку (например, «Забронировать онлайн» в шапке сайта) можно подключить атрибутом:</p>
   <pre>&lt;a href="#" data-spa-book="book"&gt;Забронировать онлайн&lt;/a&gt;
@@ -83,7 +83,7 @@
     <li>Во все карточки — одна и та же ссылка: так все брони попадают в единую сетку администратора без накладок.</li>
   </ol>
 </main>
-<script src="static/links.js"></script>
-<script src="static/widget.js" async></script>
+<script src="static/links.js?v=11150351"></script>
+<script src="static/widget.js?v=11150351" async></script>
 </body>
 </html>
